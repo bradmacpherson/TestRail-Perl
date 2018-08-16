@@ -33,13 +33,14 @@ Takes same options as the aforementioned binary as a HASHREF, with the following
 =cut;
 
 sub bulkMarkResults {
-    my ($opts,$tr) = @_;
-    confess("TestRail handle must be provided as argument 2") unless blessed($tr) eq 'TestRail::API';
+    my ( $opts, $tr ) = @_;
+    confess("TestRail handle must be provided as argument 2")
+      unless blessed($tr) eq 'TestRail::API';
 
-    my ($cases,$run) = TestRail::Utils::Find::getTests($opts,$tr);
+    my ( $cases, $run ) = TestRail::Utils::Find::getTests( $opts, $tr );
     die "No cases in TestRail to mark!\n" unless $cases;
 
-    my ($status_id) = $tr->statusNamesToIds($opts->{'set_status_to'});
+    my ($status_id) = $tr->statusNamesToIds( $opts->{'set_status_to'} );
 
     @$cases = map {
         {
@@ -50,7 +51,7 @@ sub bulkMarkResults {
         }
     } @$cases;
 
-    return $tr->bulkAddResults($run->{'id'},$cases);
+    return $tr->bulkAddResults( $run->{'id'}, $cases );
 }
 
 1;

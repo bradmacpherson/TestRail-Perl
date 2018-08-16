@@ -44,60 +44,71 @@ Returns ARRAYREF of run definition HASHREFs.
 =cut
 
 sub findRuns {
-    my ($opts,$tr) = @_;
-    confess("TestRail handle must be provided as argument 2") unless blessed($tr) eq 'TestRail::API';
+    my ( $opts, $tr ) = @_;
+    confess("TestRail handle must be provided as argument 2")
+      unless blessed($tr) eq 'TestRail::API';
 
     my ($status_labels);
 
     #Process statuses
-    if ($opts->{'statuses'}) {
-        @$status_labels = $tr->statusNamesToLabels(@{$opts->{'statuses'}});
+    if ( $opts->{'statuses'} ) {
+        @$status_labels = $tr->statusNamesToLabels( @{ $opts->{'statuses'} } );
     }
 
-    my $project = $tr->getProjectByName($opts->{'project'});
+    my $project = $tr->getProjectByName( $opts->{'project'} );
     confess("No such project '$opts->{project}'.\n") if !$project;
 
     my $pconfigs = [];
-    @$pconfigs = $tr->translateConfigNamesToIds($project->{'id'},@{$opts->{configs}}) if $opts->{'configs'};
+    @$pconfigs =
+      $tr->translateConfigNamesToIds( $project->{'id'}, @{ $opts->{configs} } )
+      if $opts->{'configs'};
 
-    my ($runs,$plans,$planRuns,$cruns,$found) = ([],[],[],[],0);
-    $runs = $tr->getRuns($project->{'id'}) if (!$opts->{'configs'}); # If configs are passed, global runs are not in consideration.
-    $plans = $tr->getPlans($project->{'id'});
-    @$plans = map {$tr->getPlanByID($_->{'id'})} @$plans;
+    my ( $runs, $plans, $planRuns, $cruns, $found ) = ( [], [], [], [], 0 );
+    $runs = $tr->getRuns( $project->{'id'} )
+      if ( !$opts->{'configs'} )
+      ;    # If configs are passed, global runs are not in consideration.
+    $plans = $tr->getPlans( $project->{'id'} );
+    @$plans = map { $tr->getPlanByID( $_->{'id'} ) } @$plans;
     foreach my $plan (@$plans) {
         $cruns = $tr->getChildRuns($plan);
         next if !$cruns;
         foreach my $run (@$cruns) {
-            next if scalar(@$pconfigs) != scalar(@{$run->{'config_ids'}});
+            next if scalar(@$pconfigs) != scalar( @{ $run->{'config_ids'} } );
 
             #Compare run config IDs against desired, invalidate run if all conditions not satisfied
             $found = 0;
-            foreach my $cid (@{$run->{'config_ids'}}) {
-                $found++ if grep {$_ == $cid} @$pconfigs;
+            foreach my $cid ( @{ $run->{'config_ids'} } ) {
+                $found++ if grep { $_ == $cid } @$pconfigs;
             }
             $run->{'created_on'}   = $plan->{'created_on'};
             $run->{'milestone_id'} = $plan->{'milestone_id'};
-            push(@$planRuns, $run) if $found == scalar(@{$run->{'config_ids'}});
+            push( @$planRuns, $run )
+              if $found == scalar( @{ $run->{'config_ids'} } );
         }
     }
 
-    push(@$runs,@$planRuns);
+    push( @$runs, @$planRuns );
 
-    if ($opts->{'statuses'}) {
-        @$runs =  $tr->getRunSummary(@$runs);
-        @$runs = grep { defined($_->{'run_status'}) } @$runs; #Filter stuff with no results
+    if ( $opts->{'statuses'} ) {
+        @$runs = $tr->getRunSummary(@$runs);
+        @$runs = grep { defined( $_->{'run_status'} ) }
+          @$runs;    #Filter stuff with no results
         foreach my $status (@$status_labels) {
-            @$runs = grep { $_->{'run_status'}->{$status} } @$runs; #If it's positive, keep it.  Otherwise forget it.
+            @$runs = grep { $_->{'run_status'}->{$status} }
+              @$runs;    #If it's positive, keep it.  Otherwise forget it.
         }
     }
 
     #Sort FIFO/LIFO by milestone or creation date of run
     my $sortkey = 'created_on';
-    if ($opts->{'milesort'}) {
+    if ( $opts->{'milesort'} ) {
         @$runs = map {
             my $run = $_;
-            $run->{'milestone'} = $tr->getMilestoneByID($run->{'milestone_id'}) if $run->{'milestone_id'};
-            my $milestone = $run->{'milestone'} ? $run->{'milestone'}->{'due_on'} : 0;
+            $run->{'milestone'} =
+              $tr->getMilestoneByID( $run->{'milestone_id'} )
+              if $run->{'milestone_id'};
+            my $milestone =
+              $run->{'milestone'} ? $run->{'milestone'}->{'due_on'} : 0;
             $run->{'due_on'} = $milestone;
             $run
         } @$runs;
@@ -106,9 +117,10 @@ sub findRuns {
 
     #Suppress 'no such option' warnings
     @$runs = map { $_->{$sortkey} //= ''; $_ } @$runs;
-    if ($opts->{'lifo'}) {
+    if ( $opts->{'lifo'} ) {
         @$runs = sort { $b->{$sortkey} cmp $a->{$sortkey} } @$runs;
-    } else {
+    }
+    else {
         @$runs = sort { $a->{$sortkey} cmp $b->{$sortkey} } @$runs;
     }
 
@@ -146,19 +158,24 @@ Returns ARRAYREF of tests, and the run in which they belong.
 =cut
 
 sub getTests {
-    my ($opts,$tr) = @_;
-    confess("TestRail handle must be provided as argument 2") unless blessed($tr) eq 'TestRail::API';
+    my ( $opts, $tr ) = @_;
+    confess("TestRail handle must be provided as argument 2")
+      unless blessed($tr) eq 'TestRail::API';
 
-    my (undef,undef,$run) = TestRail::Utils::getRunInformation($tr,$opts);
-    my ($status_ids,$user_ids);
+    my ( undef, undef, $run ) =
+      TestRail::Utils::getRunInformation( $tr, $opts );
+    my ( $status_ids, $user_ids );
+
     #Process statuses
-    @$status_ids = $tr->statusNamesToIds(@{$opts->{'statuses'}}) if $opts->{'statuses'};
+    @$status_ids = $tr->statusNamesToIds( @{ $opts->{'statuses'} } )
+      if $opts->{'statuses'};
 
     #Process assignedto ids
-    @$user_ids = $tr->userNamesToIds(@{$opts->{'users'}}) if $opts->{'users'};
+    @$user_ids = $tr->userNamesToIds( @{ $opts->{'users'} } )
+      if $opts->{'users'};
 
-    my $cases = $tr->getTests($run->{'id'},$status_ids,$user_ids);
-    return ($cases,$run);
+    my $cases = $tr->getTests( $run->{'id'}, $status_ids, $user_ids );
+    return ( $cases, $run );
 }
 
 =head2 findTests(opts,case1,...,caseN)
@@ -198,47 +215,71 @@ Dies if mutually exclusive options are passed.
 =cut
 
 sub findTests {
-    my ($opts,@cases) = @_;
+    my ( $opts, @cases ) = @_;
 
-    confess "Error! match and no-match options are mutually exclusive.\n" if ($opts->{'match'} && $opts->{'no-match'});
-    confess "Error! match and orphans options are mutually exclusive.\n" if ($opts->{'match'} && $opts->{'orphans'});
-    confess "Error! no-match and orphans options are mutually exclusive.\n" if ($opts->{'orphans'} && $opts->{'no-match'});
+    confess "Error! match and no-match options are mutually exclusive.\n"
+      if ( $opts->{'match'} && $opts->{'no-match'} );
+    confess "Error! match and orphans options are mutually exclusive.\n"
+      if ( $opts->{'match'} && $opts->{'orphans'} );
+    confess "Error! no-match and orphans options are mutually exclusive.\n"
+      if ( $opts->{'orphans'} && $opts->{'no-match'} );
     my @tests = @cases;
     my (@realtests);
     my $ext = $opts->{'extension'} // '';
 
-    if ($opts->{'match'} || $opts->{'no-match'} || $opts->{'orphans'}) {
+    if ( $opts->{'match'} || $opts->{'no-match'} || $opts->{'orphans'} ) {
         my @tmpArr = ();
-        my $dir = ($opts->{'match'} || $opts->{'orphans'}) ? ($opts->{'match'} || $opts->{'orphans'}) : $opts->{'no-match'};
-        confess "No such directory '$dir'" if ! -d $dir;
+        my $dir =
+            ( $opts->{'match'} || $opts->{'orphans'} )
+          ? ( $opts->{'match'} || $opts->{'orphans'} )
+          : $opts->{'no-match'};
+        confess "No such directory '$dir'" if !-d $dir;
 
-        if (ref($opts->{finder}) eq 'CODE') {
-            @realtests = $opts->{finder}->($dir,$ext)
-        } else {
-            if (!$opts->{'no-recurse'}) {
-                File::Find::find( sub { push(@realtests,$File::Find::name) if -f && m/\Q$ext\E$/ }, $dir );
-            } else {
+        if ( ref( $opts->{finder} ) eq 'CODE' ) {
+            @realtests = $opts->{finder}->( $dir, $ext );
+        }
+        else {
+            if ( !$opts->{'no-recurse'} ) {
+                File::Find::find(
+                    sub {
+                        push( @realtests, $File::Find::name )
+                          if -f && m/\Q$ext\E$/;
+                    },
+                    $dir
+                );
+            }
+            else {
                 @realtests = glob("$dir/*$ext");
             }
         }
         foreach my $case (@cases) {
             foreach my $path (@realtests) {
+
                 #Filter obviously bogus stuff first to not incur basename() cost except for when we're right, or have a name that contains this name
-                next unless index($path,$case->{'title'}) > 0;
+                next unless index( $path, $case->{'title'} ) > 0;
                 next unless basename($path) eq $case->{title};
                 $case->{'path'} = $path;
-                push(@tmpArr, $case);
+                push( @tmpArr, $case );
                 last;
             }
         }
-        @tmpArr = grep {my $otest = $_; !(grep {$otest->{'title'} eq $_->{'title'}} @tmpArr) } @tests if $opts->{'orphans'};
+        @tmpArr = grep {
+            my $otest = $_;
+            !( grep { $otest->{'title'} eq $_->{'title'} } @tmpArr )
+        } @tests if $opts->{'orphans'};
         @tests = @tmpArr;
-        @tests = map {{'title' => $_}} grep {my $otest = basename($_); scalar(grep {basename($_->{'title'}) eq $otest} @tests) == 0} @realtests if $opts->{'no-match'}; #invert the list in this case.
+        @tests = map { { 'title' => $_ } } grep {
+            my $otest = basename($_);
+            scalar( grep { basename( $_->{'title'} ) eq $otest } @tests ) == 0
+        } @realtests if $opts->{'no-match'};    #invert the list in this case.
     }
 
-    @tests = map { abs_path($_->{'path'}) } @tests if $opts->{'match'} && $opts->{'names-only'};
-    @tests = map { $_->{'full_title'} = abs_path($_->{'path'}); $_ } @tests if $opts->{'match'} && !$opts->{'names-only'};
-    @tests = map { $_->{'title'} } @tests if !$opts->{'match'} && $opts->{'names-only'};
+    @tests = map { abs_path( $_->{'path'} ) } @tests
+      if $opts->{'match'} && $opts->{'names-only'};
+    @tests = map { $_->{'full_title'} = abs_path( $_->{'path'} ); $_ } @tests
+      if $opts->{'match'} && !$opts->{'names-only'};
+    @tests = map { $_->{'title'} } @tests
+      if !$opts->{'match'} && $opts->{'names-only'};
 
     return @tests;
 }
@@ -250,25 +291,33 @@ Get cases in a testsuite matching your parameters passed
 =cut
 
 sub getCases {
-    my ($opts,$tr) = @_;
-    confess("First argument must be instance of TestRail::API") unless blessed($tr) eq 'TestRail::API';
+    my ( $opts, $tr ) = @_;
+    confess("First argument must be instance of TestRail::API")
+      unless blessed($tr) eq 'TestRail::API';
 
-    my $project = $tr->getProjectByName($opts->{'project'});
+    my $project = $tr->getProjectByName( $opts->{'project'} );
     confess "No such project '$opts->{project}'.\n" if !$project;
 
-    my $suite = $tr->getTestSuiteByName($project->{'id'},$opts->{'testsuite'});
+    my $suite =
+      $tr->getTestSuiteByName( $project->{'id'}, $opts->{'testsuite'} );
     confess "No such testsuite '$opts->{testsuite}'.\n" if !$suite;
     $opts->{'testsuite_id'} = $suite->{'id'};
 
     my $section;
-    $section = $tr->getSectionByName($project->{'id'},$suite->{'id'},$opts->{'section'}) if $opts->{'section'};
-    confess "No such section '$opts->{section}.\n" if $opts->{'section'} && !$section;
+    $section =
+      $tr->getSectionByName( $project->{'id'}, $suite->{'id'},
+        $opts->{'section'} )
+      if $opts->{'section'};
+    confess "No such section '$opts->{section}.\n"
+      if $opts->{'section'} && !$section;
 
     my $section_id;
     $section_id = $section->{'id'} if ref $section eq "HASH";
 
     my $type_ids;
-    @$type_ids = $tr->typeNamesToIds(@{$opts->{'types'}}) if ref $opts->{'types'} eq 'ARRAY';
+    @$type_ids = $tr->typeNamesToIds( @{ $opts->{'types'} } )
+      if ref $opts->{'types'} eq 'ARRAY';
+
     #Above will confess if anything's the matter
 
     #TODO Translate opts into filters
@@ -277,7 +326,7 @@ sub getCases {
         'type_id'    => $type_ids
     };
 
-    return $tr->getCases($project->{'id'},$suite->{'id'},$filters);
+    return $tr->getCases( $project->{'id'}, $suite->{'id'}, $filters );
 }
 
 =head2 findCases(opts,@cases)
@@ -293,36 +342,39 @@ Returns HASHREF.
 =cut
 
 sub findCases {
-    my ($opts,@cases) = @_;
+    my ( $opts, @cases ) = @_;
 
-    confess('testsuite_id parameter mandatory in options HASHREF') unless defined $opts->{'testsuite_id'};
-    confess('Directory parameter mandatory in options HASHREF.') unless defined $opts->{'directory'};
-    confess('No such directory "'.$opts->{'directory'}."\"\n") unless -d $opts->{'directory'};
+    confess('testsuite_id parameter mandatory in options HASHREF')
+      unless defined $opts->{'testsuite_id'};
+    confess('Directory parameter mandatory in options HASHREF.')
+      unless defined $opts->{'directory'};
+    confess( 'No such directory "' . $opts->{'directory'} . "\"\n" )
+      unless -d $opts->{'directory'};
 
-    my $ret = {'testsuite_id' => $opts->{'testsuite_id'}};
-    if (!$opts->{'no-missing'}) {
+    my $ret = { 'testsuite_id' => $opts->{'testsuite_id'} };
+    if ( !$opts->{'no-missing'} ) {
         my $mopts = {
             'no-match'   => $opts->{'directory'},
             'names-only' => 1,
             'extension'  => $opts->{'extension'}
         };
-        my @missing = findTests($mopts,@cases);
+        my @missing = findTests( $mopts, @cases );
         $ret->{'missing'} = \@missing;
     }
-    if ($opts->{'orphans'}) {
+    if ( $opts->{'orphans'} ) {
         my $oopts = {
-            'orphans'    => $opts->{'directory'},
-            'extension'  => $opts->{'extension'}
+            'orphans'   => $opts->{'directory'},
+            'extension' => $opts->{'extension'}
         };
-        my @orphans = findTests($oopts,@cases);
+        my @orphans = findTests( $oopts, @cases );
         $ret->{'orphans'} = \@orphans;
     }
-    if ($opts->{'update'}) {
+    if ( $opts->{'update'} ) {
         my $uopts = {
             'match'     => $opts->{'directory'},
             'extension' => $opts->{'extension'}
         };
-        my @updates = findTests($uopts,@cases);
+        my @updates = findTests( $uopts, @cases );
         $ret->{'update'} = \@updates;
     }
     return $ret;
@@ -359,152 +411,193 @@ Valid Options:
 =cut
 
 sub getResults {
-    my ($tr,$opts,@cases) = @_;
-    my $res = {};
+    my ( $tr, $opts, @cases ) = @_;
+    my $res      = {};
     my $projects = $tr->getProjects();
 
-    my (@seenRunIds,@seenPlanIds);
+    my ( @seenRunIds, @seenPlanIds );
 
     my @results;
+
     #TODO obey status filtering
     #TODO obey result notes text grepping
     foreach my $project (@$projects) {
-        next if $opts->{projects} && !( grep { $_ eq $project->{'name'} } @{$opts->{'projects'}} );
-        my $runs = $tr->getRuns($project->{'id'});
+        next
+          if $opts->{projects}
+          && !( grep { $_ eq $project->{'name'} } @{ $opts->{'projects'} } );
+        my $runs = $tr->getRuns( $project->{'id'} );
+
         #XXX No runs, or temporary error to ignore
         next unless ref($runs) eq 'ARRAY';
 
-        push(@seenRunIds, map { $_->{id} } @$runs);
+        push( @seenRunIds, map { $_->{id} } @$runs );
 
         #Translate plan names to ids
-        my $plans = $tr->getPlans($project->{'id'}) || [];
-        push(@seenPlanIds, map { $_->{id} } @$plans);
+        my $plans = $tr->getPlans( $project->{'id'} ) || [];
+        push( @seenPlanIds, map { $_->{id} } @$plans );
 
         #Filter out plans which do not match our filters to prevent a call to getPlanByID
-        if ($opts->{'plans'}) {
-            @$plans = grep { my $p = $_; any { $p->{'name'} eq $_ } @{$opts->{'plans'}} } @$plans;
+        if ( $opts->{'plans'} ) {
+            @$plans = grep {
+                my $p = $_;
+                any { $p->{'name'} eq $_ } @{ $opts->{'plans'} }
+            } @$plans;
         }
 
         #Filter out runs which do not match our filters
-        if ($opts->{'runs'}) {
-            @$runs = grep { my $r = $_; any { $r->{'name'} eq $_ } @{$opts->{'runs'}} } @$runs;
+        if ( $opts->{'runs'} ) {
+            @$runs = grep {
+                my $r = $_;
+                any { $r->{'name'} eq $_ } @{ $opts->{'runs'} }
+            } @$runs;
         }
 
         #Filter out prior plans
-        if ($opts->{'plan_ids'}) {
-            @$plans = grep { my $p = $_; !any { $p->{'id'} eq $_ } @{$opts->{'plan_ids'}} } @$plans;
+        if ( $opts->{'plan_ids'} ) {
+            @$plans = grep {
+                my $p = $_;
+                !any { $p->{'id'} eq $_ } @{ $opts->{'plan_ids'} }
+            } @$plans;
         }
 
         #Filter out prior runs
-        if ($opts->{'run_ids'}) {
-            @$runs = grep { my $r = $_; !any { $r->{'id'} eq $_ } @{$opts->{'run_ids'}} } @$runs;
+        if ( $opts->{'run_ids'} ) {
+            @$runs = grep {
+                my $r = $_;
+                !any { $r->{'id'} eq $_ } @{ $opts->{'run_ids'} }
+            } @$runs;
         }
 
         $opts->{'runs'} //= [];
         foreach my $plan (@$plans) {
-            $plan = $tr->getPlanByID($plan->{'id'});
+            $plan = $tr->getPlanByID( $plan->{'id'} );
             my $plan_runs = $tr->getChildRuns($plan);
-            push(@$runs,@$plan_runs) if $plan_runs;
+            push( @$runs, @$plan_runs ) if $plan_runs;
         }
 
-        my $configs = $tr->getConfigurations($project->{id});
+        my $configs = $tr->getConfigurations( $project->{id} );
         my %config_map;
-        @config_map{map {$_->{'id'}} @$configs} = map {$_->{'name'}} @$configs;
+        @config_map{ map { $_->{'id'} } @$configs } =
+          map { $_->{'name'} } @$configs;
 
         MCE::Loop::init {
             max_workers => 'auto',
             chunk_size  => 'auto'
         };
 
-        push (@results, mce_loop {
-            my $runz = $_;
-            #XXX it appears as though some versions of MCE do not have uniform passing convention
-            $runz = [$runz] if ref($runz) ne 'ARRAY';
+        push(
+            @results,
+            mce_loop {
+                my $runz = $_;
 
-            my $res = {};
-            foreach my $run (@$runz) {
+                #XXX it appears as though some versions of MCE do not have uniform passing convention
+                $runz = [$runz] if ref($runz) ne 'ARRAY';
 
-                #XXX super bad bug in some versions of MCE, apparently causes data loss, or is duping jobs with incomplete info!
-                next if !$run->{id};
+                my $res = {};
+                foreach my $run (@$runz) {
 
-                #Translate config ids to names, also remove any gone configs
-                my @run_configs = grep { defined $_ } map { $config_map{$_} } @{$run->{config_ids}};
-                next if scalar(@{$opts->{runs}}) && !( grep { $_ eq $run->{'name'} } @{$opts->{'runs'}} );
-                if ($opts->{fast}) {
-                    my @csz = @cases;
-                    @csz = grep { ref($_) eq 'HASH' } map {
-                        my $cname = basename($_);
-                        my $c = $tr->getTestByName($run->{id},$cname);
-                        $c->{config_ids} = \@run_configs;
-                        $c->{name} = $cname if $c;
-                        $c
-                    } @csz;
-                    next unless scalar(@csz);
+                    #XXX super bad bug in some versions of MCE, apparently causes data loss, or is duping jobs with incomplete info!
+                    next if !$run->{id};
 
-                    my $results = $tr->getRunResults($run->{id});
-                    foreach my $c (@csz) {
-                        $res->{$c->{name}} //= [];
-                        my $cres = first { $c->{id} == $_->{test_id} } @$results;
-                        return unless $cres;
+                    #Translate config ids to names, also remove any gone configs
+                    my @run_configs =
+                      grep { defined $_ }
+                      map  { $config_map{$_} } @{ $run->{config_ids} };
+                    next
+                      if scalar( @{ $opts->{runs} } )
+                      && !( grep { $_ eq $run->{'name'} }
+                        @{ $opts->{'runs'} } );
+                    if ( $opts->{fast} ) {
+                        my @csz = @cases;
+                        @csz = grep { ref($_) eq 'HASH' } map {
+                            my $cname = basename($_);
+                            my $c = $tr->getTestByName( $run->{id}, $cname );
+                            $c->{config_ids} = \@run_configs;
+                            $c->{name} = $cname if $c;
+                            $c
+                        } @csz;
+                        next unless scalar(@csz);
 
-                        $c->{results} = [$cres];
-                        $c = _filterResults($opts,$c);
+                        my $results = $tr->getRunResults( $run->{id} );
+                        foreach my $c (@csz) {
+                            $res->{ $c->{name} } //= [];
+                            my $cres =
+                              first { $c->{id} == $_->{test_id} } @$results;
+                            return unless $cres;
 
-                        push(@{$res->{$c->{name}}}, $c) if scalar(@{$c->{results}});
+                            $c->{results} = [$cres];
+                            $c = _filterResults( $opts, $c );
+
+                            push( @{ $res->{ $c->{name} } }, $c )
+                              if scalar( @{ $c->{results} } );
+                        }
+                        next;
                     }
-                    next;
+
+                    foreach my $case (@cases) {
+                        my $c =
+                          $tr->getTestByName( $run->{'id'}, basename($case) );
+                        next unless ref $c eq 'HASH';
+
+                        $res->{$case} //= [];
+                        $c->{results} =
+                          $tr->getTestResults( $c->{'id'},
+                            $tr->{'global_limit'}, 0 );
+                        $c->{config_ids} = \@run_configs;
+                        $c = _filterResults( $opts, $c );
+
+                        push( @{ $res->{$case} }, $c )
+                          if scalar( @{ $c->{results} } )
+                          ;    #Make sure they weren't filtered out
+                    }
                 }
-
-                foreach my $case (@cases) {
-                    my $c = $tr->getTestByName($run->{'id'},basename($case));
-                    next unless ref $c eq 'HASH';
-
-                    $res->{$case} //= [];
-                    $c->{results} = $tr->getTestResults($c->{'id'},$tr->{'global_limit'},0);
-                    $c->{config_ids} = \@run_configs;
-                    $c = _filterResults($opts,$c);
-
-                    push(@{$res->{$case}}, $c) if scalar(@{$c->{results}}); #Make sure they weren't filtered out
-                }
+                return MCE->gather( MCE->chunk_id, $res );
             }
-            return MCE->gather(MCE->chunk_id,$res);
-        } $runs);
+            $runs
+        );
 
     }
 
     foreach my $result (@results) {
-        $res = merge($res,$result);
+        $res = merge( $res, $result );
     }
 
-    return ($res,\@seenPlanIds,\@seenRunIds);
+    return ( $res, \@seenPlanIds, \@seenRunIds );
 }
 
 sub _filterResults {
-    my ($opts,$c) = @_;
+    my ( $opts, $c ) = @_;
 
     #Filter by provided pattern, if any
-    if ($opts->{'pattern'}) {
+    if ( $opts->{'pattern'} ) {
         my $pattern = $opts->{pattern};
-        @{$c->{results}} = grep { my $comment = $_->{comment} || ''; $comment =~ m/$pattern/i } @{$c->{results}};
+        @{ $c->{results} } =
+          grep { my $comment = $_->{comment} || ''; $comment =~ m/$pattern/i }
+          @{ $c->{results} };
     }
 
     #Filter by the provided case IDs, if any
-    if (ref($opts->{'defects'}) eq 'ARRAY' && scalar(@{$opts->{defects}})) {
-        @{$c->{results}} = grep {
+    if ( ref( $opts->{'defects'} ) eq 'ARRAY'
+        && scalar( @{ $opts->{defects} } ) )
+    {
+        @{ $c->{results} } = grep {
             my $defects = $_->{defects};
             any {
                 my $df_case = $_;
-                any { $df_case eq $_ } @{$opts->{defects}};
-            } @$defects
-        } @{$c->{results}};
+                any { $df_case eq $_ } @{ $opts->{defects} };
+            }
+            @$defects
+        } @{ $c->{results} };
     }
 
     #Filter by the provided versions, if any
-    if (ref($opts->{'versions'}) eq 'ARRAY' && scalar(@{$opts->{versions}})) {
-        @{$c->{results}} = grep {
+    if ( ref( $opts->{'versions'} ) eq 'ARRAY'
+        && scalar( @{ $opts->{versions} } ) )
+    {
+        @{ $c->{results} } = grep {
             my $version = $_->{version};
-            any { $version eq $_ } @{$opts->{versions}};
-        } @{$c->{results}};
+            any { $version eq $_ } @{ $opts->{versions} };
+        } @{ $c->{results} };
     }
 
     return $c;

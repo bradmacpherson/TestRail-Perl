@@ -91,24 +91,25 @@ Getopt::Long::Configure('pass_through');
 
 use File::HomeDir qw{my_home};
 
-if (!caller()) {
-    my ($out,$code) = run('args' => \@ARGV);
+if ( !caller() ) {
+    my ( $out, $code ) = run( 'args' => \@ARGV );
     print $out;
     exit $code;
 }
 
 sub run {
     my %params = @_;
-    my $opts = {};
+    my $opts   = {};
 
     # Parse config file
     my $homedir = my_home() || '.';
-    if (-e $homedir . '/.testrailrc') {
+    if ( -e $homedir . '/.testrailrc' ) {
         $opts = TestRail::Utils::parseConfig($homedir);
     }
 
     # Override configuration with switches
-    GetOptionsFromArray($params{'args'},
+    GetOptionsFromArray(
+        $params{'args'},
         'apiurl=s'        => \$opts->{'apiurl'},
         'password=s'      => \$opts->{'password'},
         'user=s'          => \$opts->{'user'},
@@ -122,7 +123,7 @@ sub run {
         'h|help'          => \$opts->{'help'},
     );
 
-    if ($opts->{help}) { return ('',TestRail::Utils::help()); }
+    if ( $opts->{help} ) { return ( '', TestRail::Utils::help() ); }
 
     $opts->{'browser'} = $params{'browser'};
 
@@ -130,16 +131,22 @@ sub run {
     my $reason = $params{'args'}->[1];
 
     die("No status to set provided.") unless $status;
-    TestRail::Utils::interrogateUser($opts,qw{apiurl user password project run});
+    TestRail::Utils::interrogateUser( $opts,
+        qw{apiurl user password project run} );
 
     my $tr = TestRail::Utils::getHandle($opts);
 
     $opts->{'set_status_to'} = $status;
-    $opts->{'reason'} = $reason;
-    my $results = TestRail::Utils::Results::bulkMarkResults($opts,$tr);
+    $opts->{'reason'}        = $reason;
+    my $results = TestRail::Utils::Results::bulkMarkResults( $opts, $tr );
 
-    return ("Successfully set the status of ".scalar(@$results)." cases to $status.\n",0) if $results;
-    return ("Could find no cases to set results for.\n",255);
+    return (
+        "Successfully set the status of "
+          . scalar(@$results)
+          . " cases to $status.\n",
+        0
+    ) if $results;
+    return ( "Could find no cases to set results for.\n", 255 );
 }
 
 1;

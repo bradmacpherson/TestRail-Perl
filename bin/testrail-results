@@ -131,153 +131,192 @@ use Statistics::Descriptive;
 use List::MoreUtils qw{uniq};
 use File::Basename qw{basename};
 
-if (!caller()) {
-    my ($out,$code) = run('args' => \@ARGV);
+if ( !caller() ) {
+    my ( $out, $code ) = run( 'args' => \@ARGV );
     print "$out\n";
     exit $code;
 }
 
 sub run {
     my %params = @_;
-    my $opts ={};
+    my $opts   = {};
 
     #Parse config file if we are missing api url/key or user
     my $homedir = my_home() || '.';
-    if (-e $homedir . '/.testrailrc') {
+    if ( -e $homedir . '/.testrailrc' ) {
         $opts = TestRail::Utils::parseConfig($homedir);
     }
 
-    GetOptionsFromArray($params{'args'},
-        'apiurl=s'        => \$opts->{'apiurl'},
-        'password=s'      => \$opts->{'password'},
-        'user=s'          => \$opts->{'user'},
-        'j|project=s@'    => \$opts->{'projects'},
-        'p|plan=s@'       => \$opts->{'plans'},
-        'r|run=s@'        => \$opts->{'runs'},
-        'e|encoding=s'    => \$opts->{'encoding'},
-        'g|grep=s'        => \$opts->{'pattern'},
-        'd|defect=s@'     => \$opts->{'defects'},
-        'v|version=s@'    => \$opts->{'versions'},
-        'c|cachefile=s@'  => \$opts->{'cachefile'},
-        'f|fast'          => \$opts->{'fast'},
-        'json'            => \$opts->{'json'},
-        'perfile=s'       => \$opts->{'perfile'},
-        'm|merged'        => \$opts->{'merged'},
-        'h|help'          => \$opts->{'help'},
+    GetOptionsFromArray(
+        $params{'args'},
+        'apiurl=s'       => \$opts->{'apiurl'},
+        'password=s'     => \$opts->{'password'},
+        'user=s'         => \$opts->{'user'},
+        'j|project=s@'   => \$opts->{'projects'},
+        'p|plan=s@'      => \$opts->{'plans'},
+        'r|run=s@'       => \$opts->{'runs'},
+        'e|encoding=s'   => \$opts->{'encoding'},
+        'g|grep=s'       => \$opts->{'pattern'},
+        'd|defect=s@'    => \$opts->{'defects'},
+        'v|version=s@'   => \$opts->{'versions'},
+        'c|cachefile=s@' => \$opts->{'cachefile'},
+        'f|fast'         => \$opts->{'fast'},
+        'json'           => \$opts->{'json'},
+        'perfile=s'      => \$opts->{'perfile'},
+        'm|merged'       => \$opts->{'merged'},
+        'h|help'         => \$opts->{'help'},
     );
 
-    if ($opts->{help}) { return ('',TestRail::Utils::help()); }
+    if ( $opts->{help} ) { return ( '', TestRail::Utils::help() ); }
 
-    die("No tests passed") unless scalar(@{$params{'args'}});
+    die("No tests passed") unless scalar( @{ $params{'args'} } );
 
     $opts->{'browser'} = $params{'browser'};
 
-    TestRail::Utils::interrogateUser($opts,qw{apiurl user password});
+    TestRail::Utils::interrogateUser( $opts, qw{apiurl user password} );
 
     my $tr = TestRail::Utils::getHandle($opts);
     my $prior_search;
-    my $prior_runs = [];
+    my $prior_runs  = [];
     my $prior_plans = [];
-    my $prior_hash = {};
+    my $prior_hash  = {};
     my @prior_versions;
-    if ($opts->{'cachefile'}) {
-        foreach my $cf (@{$opts->{cachefile}}) {
-            die("Prior search file '$cf' passed does not exist") if $cf && !( -e $cf);
+    if ( $opts->{'cachefile'} ) {
+        foreach my $cf ( @{ $opts->{cachefile} } ) {
+            die("Prior search file '$cf' passed does not exist")
+              if $cf && !( -e $cf );
             my $raw_text = '';
-            open(my $fh, '<', $cf) or die "Could not open $cf";
+            open( my $fh, '<', $cf ) or die "Could not open $cf";
             while (<$fh>) {
                 $raw_text .= $_;
             }
             close($fh);
             $prior_search = JSON::MaybeXS::decode_json($raw_text);
-            foreach my $key (keys(%$prior_search)) {
+            foreach my $key ( keys(%$prior_search) ) {
                 my $str_str = $prior_search->{search_string} // '';
                 my $str_pat = $opts->{pattern} // '';
-                if ( $str_str ne $str_pat) {
-                    print "Cached data in $cf has search pattern mismatch, skipping...\n";
+                if ( $str_str ne $str_pat ) {
+                    print
+                      "Cached data in $cf has search pattern mismatch, skipping...\n";
                     next;
                 }
                 $prior_hash->{$key} = $prior_search->{$key} if $opts->{merged};
 
                 #Ensure that we have all versions represented for every test watched in case we add platforms
-                if (exists $prior_hash->{$key}) {
-                    foreach my $plt (keys(%{$prior_hash->{$key}->{versions_by_status}})) {
-                        delete $prior_hash->{$key}->{versions_by_status}->{$plt} if !$plt;
-                        foreach my $v (keys(%{$prior_hash->{$key}->{versions_by_status}->{$plt}}) ) {
-                            push(@prior_versions,$v);
+                if ( exists $prior_hash->{$key} ) {
+                    foreach my $plt (
+                        keys( %{ $prior_hash->{$key}->{versions_by_status} } ) )
+                    {
+                        delete $prior_hash->{$key}->{versions_by_status}->{$plt}
+                          if !$plt;
+                        foreach my $v (
+                            keys(
+                                %{
+                                    $prior_hash->{$key}->{versions_by_status}
+                                      ->{$plt}
+                                }
+                            )
+                          )
+                        {
+                            push( @prior_versions, $v );
                         }
                     }
                 }
 
-                push(@$prior_runs, @{$prior_search->{$key}->{'seen_runs'}});
-                push(@$prior_plans,@{$prior_search->{$key}->{'seen_plans'}});
+                push( @$prior_runs, @{ $prior_search->{$key}->{'seen_runs'} } );
+                push( @$prior_plans,
+                    @{ $prior_search->{$key}->{'seen_plans'} } );
             }
-            @$prior_plans = uniq(@$prior_plans);
-            @$prior_runs  = uniq(@$prior_runs);
+            @$prior_plans       = uniq(@$prior_plans);
+            @$prior_runs        = uniq(@$prior_runs);
             $opts->{'plan_ids'} = $prior_plans;
             $opts->{'run_ids'}  = $prior_runs;
         }
     }
 
-    my ($res,$seen_plans,$seen_runs) = TestRail::Utils::Find::getResults($tr,$opts,@{$params{'args'}});
+    my ( $res, $seen_plans, $seen_runs ) =
+      TestRail::Utils::Find::getResults( $tr, $opts, @{ $params{'args'} } );
 
     #Make sure subsequent runs keep ignoring the prior plans
-    push(@$seen_plans,@$prior_plans);
+    push( @$seen_plans, @$prior_plans );
 
     my $statuses = $tr->getPossibleTestStatuses();
     my %status_map;
-    @status_map{map {$_->{'id'}} @$statuses} = map {$_->{'label'}} @$statuses;
+    @status_map{ map { $_->{'id'} } @$statuses } =
+      map { $_->{'label'} } @$statuses;
 
-    my $out = '';
+    my $out      = '';
     my $out_json = $prior_hash;
 
-
-    foreach my $case (keys(%$res)) {
+    foreach my $case ( keys(%$res) ) {
         $out .= "#############################\n";
-        my $num_runs = 0;
-        my $casetotals = {};
+        my $num_runs           = 0;
+        my $casetotals         = {};
         my $versions_by_status = {};
-        my $defects = [];
-        my $seen_versions = [];
-        my $total_elapsed = 0;
-        my $avg_elapsed = 0;
-        my $median_runtime = 0;
-        my $elapsetotals = [];
+        my $defects            = [];
+        my $seen_versions      = [];
+        my $total_elapsed      = 0;
+        my $avg_elapsed        = 0;
+        my $median_runtime     = 0;
+        my $elapsetotals       = [];
         $out_json->{$case} //= {};
 
-        foreach my $casedef (@{$res->{$case}}) {
+        foreach my $casedef ( @{ $res->{$case} } ) {
             $num_runs++;
             my $cplatform = 'default';
-            $cplatform = join(',',sort @{$casedef->{config_ids}}) if ref($casedef->{config_ids}) eq 'ARRAY' && scalar(@{$casedef->{config_ids}});
-            $cplatform ||= 'default'; #XXX catch blank platform info, this can happen in some plans apparently
-            #$out .= "Found case '$case' in run $casedef->{run_id}\n";
-            foreach my $result (@{$casedef->{results}}) {
-                if (defined $result->{status_id}) {
+            $cplatform = join( ',', sort @{ $casedef->{config_ids} } )
+              if ref( $casedef->{config_ids} ) eq 'ARRAY'
+              && scalar( @{ $casedef->{config_ids} } );
+            $cplatform ||= 'default'
+              ; #XXX catch blank platform info, this can happen in some plans apparently
+                #$out .= "Found case '$case' in run $casedef->{run_id}\n";
+            foreach my $result ( @{ $casedef->{results} } ) {
+                if ( defined $result->{status_id} ) {
+
                     #Assignment is handled as creating a new result with an undef status id
-                    $casetotals->{$result->{status_id}}++;
+                    $casetotals->{ $result->{status_id} }++;
                     $versions_by_status->{$cplatform} //= {};
-                    if ($result->{version} ) {
-                        push(@$seen_versions,$result->{version});
-                        $versions_by_status->{$cplatform}->{$result->{version}} //= [];
-                        push(@{$versions_by_status->{$cplatform}->{$result->{version}}}, {$status_map{$result->{status_id}} => "$tr->{apiurl}/index.php?/tests/view/$casedef->{id}"});
+                    if ( $result->{version} ) {
+                        push( @$seen_versions, $result->{version} );
+                        $versions_by_status->{$cplatform}
+                          ->{ $result->{version} } //= [];
+                        push(
+                            @{
+                                $versions_by_status->{$cplatform}
+                                  ->{ $result->{version} }
+                            },
+                            {
+                                $status_map{ $result->{status_id} } =>
+                                  "$tr->{apiurl}/index.php?/tests/view/$casedef->{id}"
+                            }
+                        );
                     }
                 }
-                push(@$defects, $result->{defects})    if $result->{defects} && ref($result->{defects}) ne 'ARRAY';
-                push(@$defects, @{$result->{defects}}) if $result->{defects} && ref($result->{defects}) eq 'ARRAY';
-                push(@$elapsetotals,_elapsed2secs($result->{'elapsed'}));
+                push( @$defects, $result->{defects} )
+                  if $result->{defects} && ref( $result->{defects} ) ne 'ARRAY';
+                push( @$defects, @{ $result->{defects} } )
+                  if $result->{defects} && ref( $result->{defects} ) eq 'ARRAY';
+                push( @$elapsetotals, _elapsed2secs( $result->{'elapsed'} ) );
             }
         }
 
         #Ensure versions_by_status has an entry per platform for every single version seen
-        @$seen_versions = uniq((@$seen_versions,@prior_versions));
+        @$seen_versions = uniq( ( @$seen_versions, @prior_versions ) );
 
-        my @all_platforms = grep { $_ } uniq((keys(%{$out_json->{$case}->{versions_by_status}}),keys(%$versions_by_status)));
+        my @all_platforms = grep { $_ } uniq(
+            (
+                keys( %{ $out_json->{$case}->{versions_by_status} } ),
+                keys(%$versions_by_status)
+            )
+        );
 
-        @$defects   = uniq(@$defects);
+        @$defects = uniq(@$defects);
         foreach my $plt (@all_platforms) {
             $out_json->{$case}->{versions_by_status}->{$plt} //= {};
-            foreach my $ver (keys(%{$versions_by_status->{$plt}})) {
-                @{$versions_by_status->{$plt}->{$ver}} =  sort { (keys(%$a))[0] cmp (keys(%$b))[0] } @{$versions_by_status->{$plt}->{$ver}};
+            foreach my $ver ( keys( %{ $versions_by_status->{$plt} } ) ) {
+                @{ $versions_by_status->{$plt}->{$ver} } =
+                  sort { ( keys(%$a) )[0] cmp( keys(%$b) )[0] }
+                  @{ $versions_by_status->{$plt}->{$ver} };
             }
             foreach my $v (@$seen_versions) {
                 $out_json->{$case}->{versions_by_status}->{$plt}->{$v} //= [];
@@ -290,76 +329,107 @@ sub run {
         $out_json->{$case}->{seen_plans}   //= [];
         $out_json->{$case}->{elapsetotals} //= [];
         $out_json->{$case}->{defects}      //= [];
-        foreach my $status (keys(%status_map)) {
-            $out_json->{$case}->{$status_map{$status}} //= 0;
+        foreach my $status ( keys(%status_map) ) {
+            $out_json->{$case}->{ $status_map{$status} } //= 0;
         }
 
         my $pattern_output = '';
         $out_json->{$case}->{search_string} = $opts->{'pattern'};
-        $pattern_output = " using search string '$opts->{pattern}'" if $opts->{'pattern'};
+        $pattern_output = " using search string '$opts->{pattern}'"
+          if $opts->{'pattern'};
 
         $out .= "$case was present in $num_runs runs$pattern_output.\n";
-        $out_json->{$case}->{'num_runs'}   += $num_runs;
-        push(@{$out_json->{$case}->{'seen_runs'}}, @$seen_runs);
-        push(@{$out_json->{$case}->{'seen_plans'}}, @$seen_plans);
+        $out_json->{$case}->{'num_runs'} += $num_runs;
+        push( @{ $out_json->{$case}->{'seen_runs'} },  @$seen_runs );
+        push( @{ $out_json->{$case}->{'seen_plans'} }, @$seen_plans );
 
         #Collect time statistics
-        push(@{$out_json->{$case}->{elapsetotals}},@$elapsetotals);
+        push( @{ $out_json->{$case}->{elapsetotals} }, @$elapsetotals );
         my $timestats = Statistics::Descriptive::Full->new();
-        $timestats->add_data(@{$out_json->{$case}->{elapsetotals}});
+        $timestats->add_data( @{ $out_json->{$case}->{elapsetotals} } );
 
-        $out_json->{$case}->{total_elapsed}   = $timestats->sum() || 0;
-        $out .= "Total time spent running this test: $out_json->{$case}->{total_elapsed} seconds\n";
-        $out_json->{$case}->{median_elapsed}  = $timestats->median() || 0;
-        $out .= "Median time spent running this test: $out_json->{$case}->{median_elapsed} seconds\n";
+        $out_json->{$case}->{total_elapsed} = $timestats->sum() || 0;
+        $out .=
+          "Total time spent running this test: $out_json->{$case}->{total_elapsed} seconds\n";
+        $out_json->{$case}->{median_elapsed} = $timestats->median() || 0;
+        $out .=
+          "Median time spent running this test: $out_json->{$case}->{median_elapsed} seconds\n";
         $out_json->{$case}->{average_elapsed} = $timestats->mean() || 0;
-        $out .= "Mean time spent running this test: $out_json->{$case}->{average_elapsed} seconds\n";
-        $out_json->{$case}->{stdev_elapsed}   = $timestats->standard_deviation() || 0;
-        $out .= "Standard deviations of runtime in test: $out_json->{$case}->{stdev_elapsed}\n";
-        $out_json->{$case}->{max_elapsed}     = $timestats->max() || 0;
-        $out .= "Maximum time spent running this test: $out_json->{$case}->{max_elapsed} seconds\n";
-        $out_json->{$case}->{min_elapsed}     = $timestats->min() || 0;
-        $out .= "Minimum time spent running this test: $out_json->{$case}->{min_elapsed} seconds\n";
-        $out_json->{$case}->{times_executed}  = $timestats->count() || 0;
-        $out .= "Num times this test has been executed: $out_json->{$case}->{times_executed}\n";
+        $out .=
+          "Mean time spent running this test: $out_json->{$case}->{average_elapsed} seconds\n";
+        $out_json->{$case}->{stdev_elapsed} =
+          $timestats->standard_deviation() || 0;
+        $out .=
+          "Standard deviations of runtime in test: $out_json->{$case}->{stdev_elapsed}\n";
+        $out_json->{$case}->{max_elapsed} = $timestats->max() || 0;
+        $out .=
+          "Maximum time spent running this test: $out_json->{$case}->{max_elapsed} seconds\n";
+        $out_json->{$case}->{min_elapsed} = $timestats->min() || 0;
+        $out .=
+          "Minimum time spent running this test: $out_json->{$case}->{min_elapsed} seconds\n";
+        $out_json->{$case}->{times_executed} = $timestats->count() || 0;
+        $out .=
+          "Num times this test has been executed: $out_json->{$case}->{times_executed}\n";
 
-        foreach my $status (keys(%$casetotals)) {
+        foreach my $status ( keys(%$casetotals) ) {
             $out .= "$status_map{$status}: $casetotals->{$status}\n";
-            $out_json->{$case}->{$status_map{$status}} += $casetotals->{$status};
+            $out_json->{$case}->{ $status_map{$status} } +=
+              $casetotals->{$status};
         }
 
-        foreach my $platform (keys(%$versions_by_status)) {
-            foreach my $version (keys(%{$versions_by_status->{$platform}})) {
-                $out .= "Version $version in platform IDs ($platform) had statuses :\n".join(',',@{$versions_by_status->{$platform}->{$version}})."\n";
-                push(@{$out_json->{$case}->{versions_by_status}->{$platform}->{$version}}, @{$versions_by_status->{$platform}->{$version}});
-                @{$out_json->{$case}->{versions_by_status}->{$platform}->{$version}} = uniq(@{$out_json->{$case}->{versions_by_status}->{$platform}->{$version}});
+        foreach my $platform ( keys(%$versions_by_status) ) {
+            foreach
+              my $version ( keys( %{ $versions_by_status->{$platform} } ) )
+            {
+                $out .=
+                  "Version $version in platform IDs ($platform) had statuses :\n"
+                  . join( ',',
+                    @{ $versions_by_status->{$platform}->{$version} } )
+                  . "\n";
+                push(
+                    @{
+                        $out_json->{$case}->{versions_by_status}->{$platform}
+                          ->{$version}
+                    },
+                    @{ $versions_by_status->{$platform}->{$version} }
+                );
+                @{ $out_json->{$case}->{versions_by_status}->{$platform}
+                      ->{$version} } = uniq(
+                    @{
+                        $out_json->{$case}->{versions_by_status}->{$platform}
+                          ->{$version}
+                    }
+                      );
             }
         }
 
-        $out .= "\nDefects related to case:\n".join(',',@$defects)."\n" if @$defects;
-        push(@{$out_json->{$case}->{defects}}, @$defects);
-        @{$out_json->{$case}->{defects}} = uniq(@{$out_json->{$case}->{defects}});
+        $out .= "\nDefects related to case:\n" . join( ',', @$defects ) . "\n"
+          if @$defects;
+        push( @{ $out_json->{$case}->{defects} }, @$defects );
+        @{ $out_json->{$case}->{defects} } =
+          uniq( @{ $out_json->{$case}->{defects} } );
 
     }
 
-    if ($opts->{'json'}) {
+    if ( $opts->{'json'} ) {
         my $coder = JSON::MaybeXS->new;
         $coder->canonical(1);
-        return ($coder->encode($out_json),0) unless $opts->{'perfile'};
+        return ( $coder->encode($out_json), 0 ) unless $opts->{'perfile'};
 
         die("no such directory $opts->{perfile}") unless -d $opts->{perfile};
 
-        foreach my $test (keys(%$out_json)) {
+        foreach my $test ( keys(%$out_json) ) {
             my $tn = basename($test);
-            open( my $fh, '>', "$opts->{perfile}/$tn.json") or die "could not open $opts->{perfile}/$tn.json";
-            print $fh $coder->encode({ $test => $out_json->{$test} });
+            open( my $fh, '>', "$opts->{perfile}/$tn.json" )
+              or die "could not open $opts->{perfile}/$tn.json";
+            print $fh $coder->encode( { $test => $out_json->{$test} } );
             close $fh;
         }
-        return('',0);
+        return ( '', 0 );
     }
 
     $out .= "#############################";
-    return ($out,0);
+    return ( $out, 0 );
 }
 
 sub _elapsed2secs {
@@ -368,7 +438,9 @@ sub _elapsed2secs {
     my ($seconds)         = $stamp =~ m/(\d*)s/;
     my ($seconds_minutes) = $stamp =~ m/(\d*)m/;
     my ($seconds_hours)   = $stamp =~ m/(\d*)h/;
-    return ($seconds || 0) + ($seconds_minutes ? $seconds_minutes * 60 : 0) + ($seconds_hours ? $seconds_hours * 3600 : 0);
+    return ( $seconds || 0 ) +
+      ( $seconds_minutes ? $seconds_minutes * 60 : 0 ) +
+      ( $seconds_hours   ? $seconds_hours * 3600 : 0 );
 }
 
 1;

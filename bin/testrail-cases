@@ -97,71 +97,76 @@ use TestRail::Utils::Find;
 use Getopt::Long qw{GetOptionsFromArray};
 use File::HomeDir qw{my_home};
 
-if (!caller()) {
-    my ($out,$code) = run('args' => \@ARGV);
+if ( !caller() ) {
+    my ( $out, $code ) = run( 'args' => \@ARGV );
     print $out;
     exit $code;
 }
 
 sub run {
     my %params = @_;
-    my $opts ={};
+    my $opts   = {};
 
     #Parse config file if we are missing api url/key or user
     my $homedir = my_home() || '.';
-    if (-e $homedir . '/.testrailrc') {
+    if ( -e $homedir . '/.testrailrc' ) {
         $opts = TestRail::Utils::parseConfig($homedir);
     }
 
-    GetOptionsFromArray($params{'args'},
-        'apiurl=s'        => \$opts->{'apiurl'},
-        'password=s'      => \$opts->{'password'},
-        'user=s'          => \$opts->{'user'},
-        'j|project=s'     => \$opts->{'project'},
-        't|testsuite=s'   => \$opts->{'testsuite'},
-        'd|directory=s'   => \$opts->{'directory'},
-        'm|missing'       => \$opts->{'missing'},
-        'o|orphans'       => \$opts->{'orphans'},
-        'n|no-recurse'    => \$opts->{'no-recurse'},
-        'e|encoding=s'    => \$opts->{'encoding'},
-        'section=s'       => \$opts->{'section'},
-        'type=s@'         => \$opts->{'types'},
-        'extension=s'     => \$opts->{'extension'},
-        'h|help'          => \$opts->{'help'},
-        'test'            => \$opts->{'test'},
+    GetOptionsFromArray(
+        $params{'args'},
+        'apiurl=s'      => \$opts->{'apiurl'},
+        'password=s'    => \$opts->{'password'},
+        'user=s'        => \$opts->{'user'},
+        'j|project=s'   => \$opts->{'project'},
+        't|testsuite=s' => \$opts->{'testsuite'},
+        'd|directory=s' => \$opts->{'directory'},
+        'm|missing'     => \$opts->{'missing'},
+        'o|orphans'     => \$opts->{'orphans'},
+        'n|no-recurse'  => \$opts->{'no-recurse'},
+        'e|encoding=s'  => \$opts->{'encoding'},
+        'section=s'     => \$opts->{'section'},
+        'type=s@'       => \$opts->{'types'},
+        'extension=s'   => \$opts->{'extension'},
+        'h|help'        => \$opts->{'help'},
+        'test'          => \$opts->{'test'},
     );
 
-    if ($opts->{help}) { return ('',TestRail::Utils::help()); }
+    if ( $opts->{help} ) { return ( '', TestRail::Utils::help() ); }
 
     $opts->{'browser'} = $params{'browser'};
 
     #Mutual exclusivity
     $opts->{'no-missing'} = !$opts->{'missing'};
-    $opts->{'update'} = !($opts->{'orphans'} || $opts->{'missing'});
-    die("orphans and mising options are mutually exclusive.") if $opts->{'orphans'} && $opts->{'missing'};
+    $opts->{'update'} = !( $opts->{'orphans'} || $opts->{'missing'} );
+    die("orphans and mising options are mutually exclusive.")
+      if $opts->{'orphans'} && $opts->{'missing'};
     delete $opts->{'missing'};
 
-    TestRail::Utils::interrogateUser($opts,qw{apiurl user password project testsuite directory});
+    TestRail::Utils::interrogateUser( $opts,
+        qw{apiurl user password project testsuite directory} );
 
     my $tr = TestRail::Utils::getHandle($opts);
 
-    my $cases = TestRail::Utils::Find::getCases($opts,$tr);
+    my $cases = TestRail::Utils::Find::getCases( $opts, $tr );
     die "No cases in TestRail!\n" unless $cases;
 
-    my $tests = TestRail::Utils::Find::findCases($opts,@$cases);
+    my $tests = TestRail::Utils::Find::findCases( $opts, @$cases );
 
-    my (@update,@add,@orphan);
-    @update = map {$_->{'title'}} @{$tests->{'update'}}  if ref $tests->{'update'}  eq 'ARRAY';
-    @add = map {$_->{'title'}} @{$tests->{'orphans'}} if ref $tests->{'orphans'} eq 'ARRAY';
-    @orphan = @{$tests->{'missing'}} if ref $tests->{'missing'} eq 'ARRAY';
+    my ( @update, @add, @orphan );
+    @update = map { $_->{'title'} } @{ $tests->{'update'} }
+      if ref $tests->{'update'} eq 'ARRAY';
+    @add = map { $_->{'title'} } @{ $tests->{'orphans'} }
+      if ref $tests->{'orphans'} eq 'ARRAY';
+    @orphan = @{ $tests->{'missing'} } if ref $tests->{'missing'} eq 'ARRAY';
 
     my $out = '';
-    $out .= join("\n",@update);
-    $out .= join("\n",@add);
-    $out .= join("\n",@orphan);
+    $out .= join( "\n", @update );
+    $out .= join( "\n", @add );
+    $out .= join( "\n", @orphan );
     $out .= "\n";
 
-    return ($out,0);
+    return ( $out, 0 );
 }
 
 1;

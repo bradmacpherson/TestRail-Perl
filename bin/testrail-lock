@@ -100,53 +100,55 @@ use Getopt::Long qw{GetOptionsFromArray};
 use File::HomeDir qw{my_home};
 use Sys::Hostname qw{hostname};
 
-if (!caller()) {
-    my ($out,$code) = run('args' => \@ARGV);
+if ( !caller() ) {
+    my ( $out, $code ) = run( 'args' => \@ARGV );
     print $out;
     exit $code;
 }
 
 sub run {
     my %params = @_;
-    my $opts = {};
+    my $opts   = {};
 
     #Parse config file if we are missing api url/key or user
     my $homedir = my_home() || '.';
-    if (-e $homedir . '/.testrailrc') {
+    if ( -e $homedir . '/.testrailrc' ) {
         $opts = TestRail::Utils::parseConfig($homedir);
     }
 
-    GetOptionsFromArray($params{'args'},
-        'apiurl=s'        => \$opts->{'apiurl'},
-        'password=s'      => \$opts->{'password'},
-        'user=s'          => \$opts->{'user'},
-        'l|lockname=s'    => \$opts->{'lockname'},
-        'j|project=s'     => \$opts->{'project'},
-        'p|plan=s'        => \$opts->{'plan'},
-        'r|run=s'         => \$opts->{'run'},
-        'c|config=s@'     => \$opts->{'configs'},
-        'm|match=s'       => \$opts->{'match'},
-        'no-match=s'      => \$opts->{'no-match'},
-        'n|no-recurse'    => \$opts->{'no-recurse'},
-        't|case-type=s@'  => \$opts->{'case-types'},
-        'e|encoding=s'    => \$opts->{'encoding'},
-        'h|help'          => \$opts->{'help'},
+    GetOptionsFromArray(
+        $params{'args'},
+        'apiurl=s'       => \$opts->{'apiurl'},
+        'password=s'     => \$opts->{'password'},
+        'user=s'         => \$opts->{'user'},
+        'l|lockname=s'   => \$opts->{'lockname'},
+        'j|project=s'    => \$opts->{'project'},
+        'p|plan=s'       => \$opts->{'plan'},
+        'r|run=s'        => \$opts->{'run'},
+        'c|config=s@'    => \$opts->{'configs'},
+        'm|match=s'      => \$opts->{'match'},
+        'no-match=s'     => \$opts->{'no-match'},
+        'n|no-recurse'   => \$opts->{'no-recurse'},
+        't|case-type=s@' => \$opts->{'case-types'},
+        'e|encoding=s'   => \$opts->{'encoding'},
+        'h|help'         => \$opts->{'help'},
     );
 
-    if ($opts->{help}) { return ('',TestRail::Utils::help()); }
+    if ( $opts->{help} ) { return ( '', TestRail::Utils::help() ); }
 
-    $opts->{'browser'} = $params{'browser'};
+    $opts->{'browser'}  = $params{'browser'};
     $opts->{'hostname'} = hostname;
 
-    TestRail::Utils::interrogateUser($opts,qw{apiurl user password project run lockname});
+    TestRail::Utils::interrogateUser( $opts,
+        qw{apiurl user password project run lockname} );
 
     my $tr = TestRail::Utils::getHandle($opts);
 
-    my $ret = TestRail::Utils::Lock::pickAndLockTest($opts,$tr);
+    my $ret = TestRail::Utils::Lock::pickAndLockTest( $opts, $tr );
 
-    return ('Could not lock case.', 255) if !$ret;
+    return ( 'Could not lock case.', 255 ) if !$ret;
 
-    return ($ret->{'path'}."\n",0);
+    return ( $ret->{'path'} . "\n", 0 );
 }
 
 1;

@@ -23,7 +23,11 @@ Print the perldoc for $0 and exit.
 =cut
 
 sub help {
-    Pod::Usage::pod2usage( '-verbose' => 2, '-noperldoc' => 1, '-exitval' => 'NOEXIT' );
+    Pod::Usage::pod2usage(
+        '-verbose'   => 2,
+        '-noperldoc' => 1,
+        '-exitval'   => 'NOEXIT'
+    );
     return 0;
 }
 
@@ -34,10 +38,10 @@ Wait for user input and return it.
 =cut
 
 sub userInput {
- local $| = 1;
- my $rt = <STDIN>;
- chomp $rt;
- return $rt;
+    local $| = 1;
+    my $rt = <STDIN>;
+    chomp $rt;
+    return $rt;
 }
 
 =head2 interrogateUser($options,@keys)
@@ -49,9 +53,9 @@ Dies if the user provides no value.
 =cut
 
 sub interrogateUser {
-    my ($options,@keys) = @_;
+    my ( $options, @keys ) = @_;
     foreach my $key (@keys) {
-        if (!$options->{$key}) {
+        if ( !$options->{$key} ) {
             print "Type the $key for your TestRail install below:\n";
             $options->{$key} = TestRail::Utils::userInput();
             die "$key cannot be blank!" unless $options->{$key};
@@ -71,22 +75,24 @@ ARRAY - (apiurl,password,user)
 =cut
 
 sub parseConfig {
-    my ($homedir,$login_only) = @_;
+    my ( $homedir, $login_only ) = @_;
     my $results = {};
-    my $arr =[];
+    my $arr     = [];
 
-    open(my $fh, '<', $homedir . '/.testrailrc') or return (undef,undef,undef);#couldn't open!
+    open( my $fh, '<', $homedir . '/.testrailrc' )
+      or return ( undef, undef, undef );    #couldn't open!
     while (<$fh>) {
         chomp;
-        @$arr = split(/=/,$_);
-        if (scalar(@$arr) != 2) {
+        @$arr = split( /=/, $_ );
+        if ( scalar(@$arr) != 2 ) {
             warn("Could not parse $_ in '$homedir/.testrailrc'!\n");
             next;
         }
-        $results->{lc($arr->[0])} = $arr->[1];
+        $results->{ lc( $arr->[0] ) } = $arr->[1];
     }
     close($fh);
-    return ($results->{'apiurl'},$results->{'password'},$results->{'user'}) if $login_only;
+    return ( $results->{'apiurl'}, $results->{'password'}, $results->{'user'} )
+      if $login_only;
     return $results;
 }
 
@@ -109,18 +115,21 @@ STRING filename of the test that output the TAP.
 sub getFilenameFromTapLine {
     my $orig = shift;
 
-    $orig =~ s/ *$//g; # Strip all trailing whitespace
+    $orig =~ s/ *$//g;    # Strip all trailing whitespace
 
     #Special case
     my ($is_skipall) = $orig =~ /(.*)\.+ skipped:/;
     return $is_skipall if $is_skipall;
 
-    my @process_split = split(/ /,$orig);
+    my @process_split = split( / /, $orig );
     return 0 unless scalar(@process_split);
-    my $dotty = pop @process_split; #remove the ........ (may repeat a number of times)
-    return 0 if $dotty =~ /\d/; #Apparently looking for literal dots returns numbers too. who knew?
+    my $dotty =
+      pop @process_split;    #remove the ........ (may repeat a number of times)
+    return 0
+      if $dotty =~
+      /\d/;  #Apparently looking for literal dots returns numbers too. who knew?
     chomp $dotty;
-    my $line = join(' ',@process_split);
+    my $line = join( ' ', @process_split );
 
     #IF it ends in a bunch of dots
     #AND it isn't an ok/not ok
@@ -128,7 +137,11 @@ sub getFilenameFromTapLine {
     #AND it isn't blank
     #THEN it's a test name
 
-    return $line if ($dotty =~ /^\.+$/ && !($line =~ /^ok|not ok/) && !($line =~ /^# /) && $line);
+    return $line
+      if ( $dotty =~ /^\.+$/
+        && !( $line =~ /^ok|not ok/ )
+        && !( $line =~ /^# / )
+        && $line );
     return 0;
 }
 
@@ -141,33 +154,36 @@ file is optional, will read TAP from STDIN if not passed.
 
 sub TAP2TestFiles {
     my $file = shift;
-    my ($fh,$fcontents,@files);
+    my ( $fh, $fcontents, @files );
 
     if ($file) {
-        open($fh,'<',$file);
+        open( $fh, '<', $file );
         while (<$fh>) {
-            $_ = colorstrip($_); #strip prove brain damage
+            $_ = colorstrip($_);    #strip prove brain damage
 
-            if (getFilenameFromTapLine($_)) {
-                push(@files,$fcontents) if $fcontents;
+            if ( getFilenameFromTapLine($_) ) {
+                push( @files, $fcontents ) if $fcontents;
                 $fcontents = '';
             }
             $fcontents .= $_;
         }
         close($fh);
-        push(@files,$fcontents) if $fcontents;
-    } else {
+        push( @files, $fcontents ) if $fcontents;
+    }
+    else {
         #Just read STDIN, print help if no file was passed
-        die "ERROR: no file passed, and no data piped in! See --help for usage.\n" if IO::Interactive::Tiny::is_interactive();
+        die
+          "ERROR: no file passed, and no data piped in! See --help for usage.\n"
+          if IO::Interactive::Tiny::is_interactive();
         while (<>) {
-            $_ = colorstrip($_); #strip prove brain damage
-            if (getFilenameFromTapLine($_)) {
-                push(@files,$fcontents) if $fcontents;
+            $_ = colorstrip($_);    #strip prove brain damage
+            if ( getFilenameFromTapLine($_) ) {
+                push( @files, $fcontents ) if $fcontents;
                 $fcontents = '';
             }
             $fcontents .= $_;
         }
-        push(@files,$fcontents) if $fcontents;
+        push( @files, $fcontents ) if $fcontents;
     }
     return @files;
 }
@@ -181,33 +197,39 @@ Dies in the event the project/plan/run could not be found.
 =cut
 
 sub getRunInformation {
-    my ($tr,$opts) = @_;
-    confess("First argument must be instance of TestRail::API") unless blessed($tr) eq 'TestRail::API';
+    my ( $tr, $opts ) = @_;
+    confess("First argument must be instance of TestRail::API")
+      unless blessed($tr) eq 'TestRail::API';
 
-    my $project = $tr->getProjectByName($opts->{'project'});
+    my $project = $tr->getProjectByName( $opts->{'project'} );
     confess "No such project '$opts->{project}'.\n" if !$project;
 
-    my ($run,$plan);
+    my ( $run, $plan );
 
-    if ($opts->{'plan'}) {
-        $plan = $tr->getPlanByName($project->{'id'},$opts->{'plan'});
+    if ( $opts->{'plan'} ) {
+        $plan = $tr->getPlanByName( $project->{'id'}, $opts->{'plan'} );
         confess "No such plan '$opts->{plan}'!\n" if !$plan;
-        $run = $tr->getChildRunByName($plan,$opts->{'run'}, $opts->{'configs'});
-    } else {
-        $run = $tr->getRunByName($project->{'id'},$opts->{'run'});
+        $run =
+          $tr->getChildRunByName( $plan, $opts->{'run'}, $opts->{'configs'} );
+    }
+    else {
+        $run = $tr->getRunByName( $project->{'id'}, $opts->{'run'} );
     }
 
-    confess "No such run '$opts->{run}' matching the provided configs (if any).\n" if !$run;
+    confess
+      "No such run '$opts->{run}' matching the provided configs (if any).\n"
+      if !$run;
 
     #If the run/plan has a milestone set, then return it too
     my $milestone;
     my $mid = $plan ? $plan->{'milestone_id'} : $run->{'milestone_id'};
     if ($mid) {
         $milestone = $tr->getMilestoneByID($mid);
-        confess "Could not fetch run milestone!" unless $milestone; #hope this doesn't happen
+        confess "Could not fetch run milestone!"
+          unless $milestone;    #hope this doesn't happen
     }
 
-    return ($project, $plan, $run, $milestone);
+    return ( $project, $plan, $run, $milestone );
 }
 
 =head2 getHandle(opts)
@@ -223,12 +245,15 @@ Has a special 'mock' hash key that can only be used by those testing this distri
 sub getHandle {
     my $opts = shift;
 
-    $opts->{'debug'} = 1 if ($opts->{'browser'});
+    $opts->{'debug'} = 1 if ( $opts->{'browser'} );
 
-    my $tr = TestRail::API->new($opts->{apiurl},$opts->{user},$opts->{password},$opts->{'encoding'},$opts->{'debug'});
-    if ($opts->{'browser'}) {
+    my $tr = TestRail::API->new(
+        $opts->{apiurl},     $opts->{user}, $opts->{password},
+        $opts->{'encoding'}, $opts->{'debug'}
+    );
+    if ( $opts->{'browser'} ) {
         $tr->{'browser'} = $opts->{'browser'};
-        $tr->{'debug'} = 0;
+        $tr->{'debug'}   = 0;
     }
     return $tr;
 }

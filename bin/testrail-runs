@@ -83,23 +83,24 @@ use TestRail::Utils::Find;
 use Getopt::Long qw{GetOptionsFromArray};
 use File::HomeDir qw{my_home};
 
-if (!caller()) {
-    my ($out,$code) = run('args' => \@ARGV);
+if ( !caller() ) {
+    my ( $out, $code ) = run( 'args' => \@ARGV );
     print $out;
     exit $code;
 }
 
 sub run {
     my %params = @_;
-    my $opts = {};
+    my $opts   = {};
 
     # Parse config file
     my $homedir = my_home() || '.';
-    if (-e $homedir . '/.testrailrc') {
+    if ( -e $homedir . '/.testrailrc' ) {
         $opts = TestRail::Utils::parseConfig($homedir);
     }
 
-    GetOptionsFromArray($params{'args'},
+    GetOptionsFromArray(
+        $params{'args'},
         'apiurl=s'     => \$opts->{'apiurl'},
         'password=s'   => \$opts->{'password'},
         'user=s'       => \$opts->{'user'},
@@ -112,18 +113,18 @@ sub run {
         'h|help'       => \$opts->{'help'},
     );
 
-    if ($opts->{help}) { return ('',TestRail::Utils::help()); }
+    if ( $opts->{help} ) { return ( '', TestRail::Utils::help() ); }
 
     $opts->{'browser'} = $params{'browser'};
 
-    TestRail::Utils::interrogateUser($opts,qw{apiurl user password project});
+    TestRail::Utils::interrogateUser( $opts, qw{apiurl user password project} );
 
     my $tr = TestRail::Utils::getHandle($opts);
-    my $runs = TestRail::Utils::Find::findRuns($opts,$tr);
+    my $runs = TestRail::Utils::Find::findRuns( $opts, $tr );
 
-    @$runs = map {$_->{name}} @$runs;
-    return (join("\n",@$runs)."\n", 0) if scalar(@$runs);
-    return ("No runs found matching your criterion.\n",255);
+    @$runs = map { $_->{name} } @$runs;
+    return ( join( "\n", @$runs ) . "\n", 0 ) if scalar(@$runs);
+    return ( "No runs found matching your criterion.\n", 255 );
 }
 
 1;

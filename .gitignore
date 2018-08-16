@@ -3,3 +3,4 @@
 Makefile.old
 cover/
 .build/
+.tidyall.d/

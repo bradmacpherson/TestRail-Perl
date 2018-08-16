@@ -82,27 +82,29 @@ Not the most elegant solution, but I see no other clear path to get those variab
 =cut
 
 sub load {
-    my ($class, $p) = @_;
+    my ( $class, $p ) = @_;
 
-    my $app = $p->{app_prove};
+    my $app  = $p->{app_prove};
     my $args = $p->{'args'};
 
     my $params = {};
 
     #Only attempt parse if we aren't mocking and the homedir exists
     my $homedir = my_home() || '.';
-    $params = TestRail::Utils::parseConfig($homedir) if -e $homedir && !$ENV{'TESTRAIL_MOCKED'};
+    $params = TestRail::Utils::parseConfig($homedir)
+      if -e $homedir && !$ENV{'TESTRAIL_MOCKED'};
 
     my @kvp = ();
-    my ($key,$value);
+    my ( $key, $value );
     foreach my $arg (@$args) {
-        @kvp = split(/=/,$arg);
-        if (scalar(@kvp) < 2) {
-            print "Unrecognized Argument '$arg' to App::Prove::Plugin::Testrail, ignoring\n";
+        @kvp = split( /=/, $arg );
+        if ( scalar(@kvp) < 2 ) {
+            print
+              "Unrecognized Argument '$arg' to App::Prove::Plugin::Testrail, ignoring\n";
             next;
         }
-        $key = shift @kvp;
-        $value = join('',@kvp);
+        $key            = shift @kvp;
+        $value          = join( '', @kvp );
         $params->{$key} = $value;
     }
 

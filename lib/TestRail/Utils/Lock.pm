@@ -11,7 +11,8 @@ use warnings;
 use Carp qw{confess cluck};
 use Scalar::Util qw{blessed};
 
-use Types::Standard qw( slurpy ClassName Object Str Int Bool HashRef ArrayRef Maybe Optional);
+use Types::Standard
+  qw( slurpy ClassName Object Str Int Bool HashRef ArrayRef Maybe Optional);
 use Type::Params qw( compile );
 
 use TestRail::API;
@@ -53,43 +54,55 @@ If the test could not be locked, 0 is returned.
 =cut
 
 sub pickAndLockTest {
-    state $check = compile(HashRef, Optional[Maybe[Object]]);
-    my ($opts, $tr) = $check->(@_);
-    confess("TestRail handle must be provided as argument 2") unless blessed($tr) eq 'TestRail::API';
+    state $check = compile( HashRef, Optional [ Maybe [Object] ] );
+    my ( $opts, $tr ) = $check->(@_);
+    confess("TestRail handle must be provided as argument 2")
+      unless blessed($tr) eq 'TestRail::API';
 
-
-    my ($project,$plan,$run) = TestRail::Utils::getRunInformation($tr,$opts);
+    my ( $project, $plan, $run ) =
+      TestRail::Utils::getRunInformation( $tr, $opts );
 
     my $status_ids;
 
     # Process statuses
-    @$status_ids = $tr->statusNamesToIds($opts->{'lockname'},'untested','retest');
-    my ($lock_status_id,$untested_id,$retest_id) = @$status_ids;
+    @$status_ids =
+      $tr->statusNamesToIds( $opts->{'lockname'}, 'untested', 'retest' );
+    my ( $lock_status_id, $untested_id, $retest_id ) = @$status_ids;
 
-    my $cases = $tr->getTests($run->{'id'});
+    my $cases = $tr->getTests( $run->{'id'} );
 
     #Filter by case types
-    if ($opts->{'case-types'}) {
-        my @case_types = map { my $cdef = $tr->getCaseTypeByName($_); $cdef->{'id'} } @{ $opts->{'case-types'} };
-        @$cases = grep { my $case_type_id = $_->{'type_id'}; grep {$_ eq $case_type_id} @case_types } @$cases;
+    if ( $opts->{'case-types'} ) {
+        my @case_types =
+          map { my $cdef = $tr->getCaseTypeByName($_); $cdef->{'id'} }
+          @{ $opts->{'case-types'} };
+        @$cases = grep {
+            my $case_type_id = $_->{'type_id'};
+            grep { $_ eq $case_type_id } @case_types
+        } @$cases;
     }
 
     # Limit to only non-locked and open cases
-    @$cases = grep { my $tstatus = $_->{'status_id'}; scalar(grep { $tstatus eq $_ } ($untested_id,$retest_id) ) } @$cases;
-    @$cases = sort { $b->{'priority_id'} <=> $a->{'priority_id'} } @$cases; #Sort by priority DESC
+    @$cases = grep {
+        my $tstatus = $_->{'status_id'};
+        scalar( grep { $tstatus eq $_ } ( $untested_id, $retest_id ) )
+    } @$cases;
+    @$cases = sort { $b->{'priority_id'} <=> $a->{'priority_id'} }
+      @$cases;    #Sort by priority DESC
 
     # Filter by match options
-    @$cases = TestRail::Utils::Find::findTests($opts,@$cases);
+    @$cases = TestRail::Utils::Find::findTests( $opts, @$cases );
 
-    my ($title,$test);
+    my ( $title, $test );
     while (@$cases) {
         $test = shift @$cases;
-        $title = lockTest($test,$lock_status_id,$opts->{'hostname'},$tr);
+        $title = lockTest( $test, $lock_status_id, $opts->{'hostname'}, $tr );
         last if $title;
     }
 
-    if (!$title) {
-        warn "Failed to lock case!  This probably means you don't have any cases left to lock.";
+    if ( !$title ) {
+        warn
+          "Failed to lock case!  This probably means you don't have any cases left to lock.";
         return 0;
     }
 
@@ -121,8 +134,8 @@ Returns -1 in the event a lock could not occur, and warns & returns 0 on lock co
 =cut
 
 sub lockTest {
-    state $check = compile(HashRef, Int, Str, Object);
-    my ($test,$lock_status_id,$hostname,$handle) = $check->(@_);
+    state $check = compile( HashRef, Int, Str, Object );
+    my ( $test, $lock_status_id, $hostname, $handle ) = $check->(@_);
 
     my $res = $handle->createTestResults(
         $test->{id},
@@ -133,24 +146,27 @@ sub lockTest {
     );
 
     #If we've got more than 100 lock conflicts, we have big-time problems
-    my $results = $handle->getTestResults($test->{id},100);
+    my $results = $handle->getTestResults( $test->{id}, 100 );
 
     #Remember, we're returned results from newest to oldest...
     my $next_one = 0;
     foreach my $result (@$results) {
-        unless ($result->{'status_id'} == $lock_status_id) {
+        unless ( $result->{'status_id'} == $lock_status_id ) {
+
             #Clearly no lock conflict going on here if next_one is true
             last if $next_one;
+
             #Otherwise just skip it until we get to the test we locked
             next;
         }
 
-        if ($result->{id} == $res->{'id'}) {
+        if ( $result->{id} == $res->{'id'} ) {
             $next_one = 1;
             next;
         }
 
         if ($next_one) {
+
             #If we got this far, a lock conflict occurred. Try the next one.
             warn "Lock conflict detected.  Try again...\n";
             return 0;
@@ -158,7 +174,10 @@ sub lockTest {
     }
 
     #Prefer full titles (match mode)
-    return defined($test->{'full_title'}) ? $test->{'full_title'} : $test->{'title'} if $next_one;
+    return defined( $test->{'full_title'} )
+      ? $test->{'full_title'}
+      : $test->{'title'}
+      if $next_one;
     return -1;
 }
 

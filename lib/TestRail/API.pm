@@ -40,13 +40,13 @@ use 5.010;
 use strict;
 use warnings;
 
-
 use Carp qw{cluck confess};
 use Scalar::Util qw{reftype looks_like_number};
 use Clone 'clone';
 use Try::Tiny;
 
-use Types::Standard qw( slurpy ClassName Object Str Int Bool HashRef ArrayRef Maybe Optional);
+use Types::Standard
+  qw( slurpy ClassName Object Str Int Bool HashRef ArrayRef Maybe Optional);
 use Type::Params qw( compile );
 
 use JSON::MaybeXS 1.001000 ();
@@ -90,26 +90,32 @@ Does not do above checks if debug is passed.
 =cut
 
 sub new {
-    state $check = compile(ClassName, Str, Str, Str, Optional[Maybe[Str]], Optional[Maybe[Bool]], Optional[Maybe[Bool]], Optional[Maybe[Int]]);
-    my ($class,$apiurl,$user,$pass,$encoding,$debug, $do_post_redirect,$max_tries) = $check->(@_);
+    state $check = compile( ClassName, Str,
+        Str, Str,
+        Optional [ Maybe [Str] ],  Optional [ Maybe [Bool] ],
+        Optional [ Maybe [Bool] ], Optional [ Maybe [Int] ]
+    );
+    my ( $class, $apiurl, $user, $pass, $encoding, $debug, $do_post_redirect,
+        $max_tries )
+      = $check->(@_);
 
     die("Invalid URI passed to constructor") if !is_uri($apiurl);
     $debug //= 0;
 
     my $self = {
-        user             => $user,
-        pass             => $pass,
-        apiurl           => $apiurl,
-        debug            => $debug,
-        encoding         => $encoding || 'UTF-8',
-        testtree         => [],
-        flattree         => [],
-        user_cache       => [],
-        configurations   => {},
-        tr_fields        => undef,
-        default_request  => undef,
-        global_limit     => 250, #Discovered by experimentation
-        browser          => new LWP::UserAgent(
+        user            => $user,
+        pass            => $pass,
+        apiurl          => $apiurl,
+        debug           => $debug,
+        encoding        => $encoding || 'UTF-8',
+        testtree        => [],
+        flattree        => [],
+        user_cache      => [],
+        configurations  => {},
+        tr_fields       => undef,
+        default_request => undef,
+        global_limit    => 250,                   #Discovered by experimentation
+        browser         => new LWP::UserAgent(
             keep_alive => 10,
         ),
         do_post_redirect => $do_post_redirect,
@@ -118,37 +124,54 @@ sub new {
     };
 
     #Allow POST redirects
-    if ($self->{do_post_redirect}) {
+    if ( $self->{do_post_redirect} ) {
         push @{ $self->{'browser'}->requests_redirectable }, 'POST';
     }
 
     #Check chara encoding
-    $self->{'encoding-nonaliased'} = Encode::resolve_alias($self->{'encoding'});
-    die("Invalid encoding alias '".$self->{'encoding'}."' passed, see Encoding::Supported for a list of allowed encodings")
-        unless $self->{'encoding-nonaliased'};
+    $self->{'encoding-nonaliased'} =
+      Encode::resolve_alias( $self->{'encoding'} );
+    die(    "Invalid encoding alias '"
+          . $self->{'encoding'}
+          . "' passed, see Encoding::Supported for a list of allowed encodings"
+    ) unless $self->{'encoding-nonaliased'};
 
-    die("Invalid encoding '".$self->{'encoding-nonaliased'}."' passed, see Encoding::Supported for a list of allowed encodings")
-        unless grep {$_ eq $self->{'encoding-nonaliased'}} (Encode->encodings(":all"));
+    die(    "Invalid encoding '"
+          . $self->{'encoding-nonaliased'}
+          . "' passed, see Encoding::Supported for a list of allowed encodings"
+      )
+      unless grep { $_ eq $self->{'encoding-nonaliased'} }
+      ( Encode->encodings(":all") );
 
     #Create default request to pass on to LWP::UserAgent
     $self->{'default_request'} = new HTTP::Request();
-    $self->{'default_request'}->authorization_basic($user,$pass);
+    $self->{'default_request'}->authorization_basic( $user, $pass );
 
     bless( $self, $class );
-    return $self if $self->debug; #For easy class testing without mocks
+    return $self if $self->debug;    #For easy class testing without mocks
 
     #Manually do the get_users call to check HTTP status
     my $res = $self->_doRequest('index.php?/api/v2/get_users');
     confess "Error: network unreachable" if !defined($res);
-    if ( (reftype($res) || 'undef') ne 'ARRAY') {
-      die "Unexpected return from _doRequest: $res" if !looks_like_number($res);
-      die "Could not communicate with TestRail Server! Check that your URI is correct, and your TestRail installation is functioning correctly." if $res == -500;
-      die "Could not list testRail users! Check that your TestRail installation has it's API enabled, and your credentials are correct" if $res == -403;
-      die "Bad user credentials!" if $res == -401;
-      die "HTTP error ".abs($res)." encountered while communicating with TestRail server.  Resolve issue and try again." if $res < 0;
-      die "Unknown error occurred: $res";
+    if ( ( reftype($res) || 'undef' ) ne 'ARRAY' ) {
+        die "Unexpected return from _doRequest: $res"
+          if !looks_like_number($res);
+        die
+          "Could not communicate with TestRail Server! Check that your URI is correct, and your TestRail installation is functioning correctly."
+          if $res == -500;
+        die
+          "Could not list testRail users! Check that your TestRail installation has it's API enabled, and your credentials are correct"
+          if $res == -403;
+        die "Bad user credentials!" if $res == -401;
+        die "HTTP error "
+          . abs($res)
+          . " encountered while communicating with TestRail server.  Resolve issue and try again."
+          if $res < 0;
+        die "Unknown error occurred: $res";
     }
-    die "No users detected on TestRail Install!  Check that your API is functioning correctly." if !scalar(@$res);
+    die
+      "No users detected on TestRail Install!  Check that your API is functioning correctly."
+      if !scalar(@$res);
     $self->{'user_cache'} = $res;
 
     return $self;
@@ -167,8 +190,9 @@ Accessors for these parameters you pass into the constructor, in case you forget
 sub apiurl {
     state $check = compile(Object);
     my ($self) = $check->(@_);
-    return $self->{'apiurl'}
+    return $self->{'apiurl'};
 }
+
 sub debug {
     state $check = compile(Object);
     my ($self) = $check->(@_);
@@ -188,8 +212,11 @@ This is the number of seconds to wait between failed request retries when max_re
 
 #Convenient JSON-HTTP fetcher
 sub _doRequest {
-    state $check = compile(Object, Str, Optional[Maybe[Str]], Optional[Maybe[HashRef]]);
-    my ($self,$path,$method,$data) = $check->(@_);
+    state $check = compile( Object, Str,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [HashRef] ]
+    );
+    my ( $self, $path, $method, $data ) = $check->(@_);
 
     $self->{num_tries}++;
 
@@ -197,17 +224,21 @@ sub _doRequest {
     $method //= 'GET';
 
     $req->method($method);
-    $req->url($self->apiurl.'/'.$path);
+    $req->url( $self->apiurl . '/' . $path );
 
-    warn "$method ".$self->apiurl."/$path" if $self->debug;
+    warn "$method " . $self->apiurl . "/$path" if $self->debug;
 
     my $coder = JSON::MaybeXS->new;
 
     #Data sent is JSON, and encoded per user preference
-    my $content = $data ? Encode::encode( $self->{'encoding-nonaliased'}, $coder->encode($data) ) : '';
+    my $content =
+      $data
+      ? Encode::encode( $self->{'encoding-nonaliased'}, $coder->encode($data) )
+      : '';
 
     $req->content($content);
-    $req->header( "Content-Type" => "application/json; charset=".$self->{'encoding'} );
+    $req->header(
+        "Content-Type" => "application/json; charset=" . $self->{'encoding'} );
 
     my $response = eval { $self->{'browser'}->request($req) };
 
@@ -221,33 +252,40 @@ sub _doRequest {
     #close $fh;
 
     if ($@) {
+
         #LWP threw an ex, probably a timeout
-        if ($self->{num_tries} >= $self->{max_tries}) {
+        if ( $self->{num_tries} >= $self->{max_tries} ) {
             $self->{num_tries} = 0;
             confess "Failed to satisfy request after $self->{num_tries} tries!";
         }
-        cluck "WARNING: TestRail API request failed due to timeout, or other LWP fatal condition, re-trying request...\n";
+        cluck
+          "WARNING: TestRail API request failed due to timeout, or other LWP fatal condition, re-trying request...\n";
         sleep $self->{retry_delay} if $self->{retry_delay};
         goto &_doRequest;
     }
 
-    return $response if !defined($response); #worst case
+    return $response if !defined($response);    #worst case
 
-    if ($response->code == 403) {
-        confess "ERROR 403: Access Denied: ".$response->content;
+    if ( $response->code == 403 ) {
+        confess "ERROR 403: Access Denied: " . $response->content;
     }
-    if ($response->code == 401) {
-        confess "ERROR 401: Authentication failed: ".$response->content;
+    if ( $response->code == 401 ) {
+        confess "ERROR 401: Authentication failed: " . $response->content;
     }
 
-    if ($response->code != 200) {
+    if ( $response->code != 200 ) {
+
         #LWP threw an ex, probably a timeout
-        if ($self->{num_tries} >= $self->{max_tries}) {
+        if ( $self->{num_tries} >= $self->{max_tries} ) {
             $self->{num_tries} = 0;
-            cluck "ERROR: Arguments Bad? (got code ".$response->code."): ".$response->content;
-            return -int($response->code);
+            cluck "ERROR: Arguments Bad? (got code "
+              . $response->code . "): "
+              . $response->content;
+            return -int( $response->code );
         }
-        cluck "WARNING: TestRail API request failed (got code ".$response->code."), re-trying request...\n";
+        cluck "WARNING: TestRail API request failed (got code "
+          . $response->code
+          . "), re-trying request...\n";
         sleep $self->{retry_delay} if $self->{retry_delay};
         goto &_doRequest;
 
@@ -255,16 +293,19 @@ sub _doRequest {
     $self->{num_tries} = 0;
 
     try {
-        return $coder->decode($response->content);
-    } catch {
-        if ($response->code == 200 && !$response->content) {
-            return 1; #This function probably just returns no data
-        } else {
+        return $coder->decode( $response->content );
+    }
+    catch {
+        if ( $response->code == 200 && !$response->content ) {
+            return 1;    #This function probably just returns no data
+        }
+        else {
             cluck "ERROR: Malformed JSON returned by API.";
             cluck $@;
-            if (!$self->debug) { #Otherwise we've already printed this, but we need to know if we encounter this
+            if ( !$self->debug )
+            { #Otherwise we've already printed this, but we need to know if we encounter this
                 cluck "RAW CONTENT:";
-                cluck $response->content
+                cluck $response->content;
             }
             return 0;
         }
@@ -285,15 +326,17 @@ sub getUsers {
     my ($self) = $check->(@_);
 
     my $res = $self->_doRequest('index.php?/api/v2/get_users');
-    return -500 if !$res || (reftype($res) || 'undef') ne 'ARRAY';
+    return -500 if !$res || ( reftype($res) || 'undef' ) ne 'ARRAY';
     $self->{'user_cache'} = $res;
     return clone($res);
 }
 
 =head2 B<getUserByID(id)>
 =cut
+
 =head2 B<getUserByName(name)>
 =cut
+
 =head2 B<getUserByEmail(email)>
 
 Get user definition hash by ID, Name or Email.
@@ -305,36 +348,42 @@ For efficiency's sake, these methods cache the result of getUsers until you expl
 
 #I'm just using the cache for the following methods because it's more straightforward and faster past 1 call.
 sub getUserByID {
-    state $check = compile(Object, Int);
-    my ($self,$user) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $user ) = $check->(@_);
 
-    $self->getUsers() if !defined($self->{'user_cache'});
-    return -500 if (!defined($self->{'user_cache'}) || (reftype($self->{'user_cache'}) || 'undef') ne 'ARRAY');
-    foreach my $usr (@{$self->{'user_cache'}}) {
+    $self->getUsers() if !defined( $self->{'user_cache'} );
+    return -500
+      if ( !defined( $self->{'user_cache'} )
+        || ( reftype( $self->{'user_cache'} ) || 'undef' ) ne 'ARRAY' );
+    foreach my $usr ( @{ $self->{'user_cache'} } ) {
         return $usr if $usr->{'id'} == $user;
     }
     return 0;
 }
 
 sub getUserByName {
-    state $check = compile(Object, Str);
-    my ($self,$user) = $check->(@_);
+    state $check = compile( Object, Str );
+    my ( $self, $user ) = $check->(@_);
 
-    $self->getUsers() if !defined($self->{'user_cache'});
-    return -500 if (!defined($self->{'user_cache'}) || (reftype($self->{'user_cache'}) || 'undef') ne 'ARRAY');
-    foreach my $usr (@{$self->{'user_cache'}}) {
+    $self->getUsers() if !defined( $self->{'user_cache'} );
+    return -500
+      if ( !defined( $self->{'user_cache'} )
+        || ( reftype( $self->{'user_cache'} ) || 'undef' ) ne 'ARRAY' );
+    foreach my $usr ( @{ $self->{'user_cache'} } ) {
         return $usr if $usr->{'name'} eq $user;
     }
     return 0;
 }
 
 sub getUserByEmail {
-    state $check = compile(Object, Str);
-    my ($self,$email) = $check->(@_);
+    state $check = compile( Object, Str );
+    my ( $self, $email ) = $check->(@_);
 
-    $self->getUsers() if !defined($self->{'user_cache'});
-    return -500 if (!defined($self->{'user_cache'}) || (reftype($self->{'user_cache'}) || 'undef') ne 'ARRAY');
-    foreach my $usr (@{$self->{'user_cache'}}) {
+    $self->getUsers() if !defined( $self->{'user_cache'} );
+    return -500
+      if ( !defined( $self->{'user_cache'} )
+        || ( reftype( $self->{'user_cache'} ) || 'undef' ) ne 'ARRAY' );
+    foreach my $usr ( @{ $self->{'user_cache'} } ) {
         return $usr if $usr->{'email'} eq $email;
     }
     return 0;
@@ -357,14 +406,19 @@ Throws an exception in the case of one (or more) of the names not corresponding 
 =cut
 
 sub userNamesToIds {
-    state $check = compile(Object, slurpy ArrayRef[Str]);
-    my ($self,$names) = $check->(@_);
+    state $check = compile( Object, slurpy ArrayRef [Str] );
+    my ( $self, $names ) = $check->(@_);
 
     confess("At least one user name must be provided") if !scalar(@$names);
-    my @ret = grep {defined $_} map {my $user = $_; my @list = grep {$user->{'name'} eq $_} @$names; scalar(@list) ? $user->{'id'} : undef} @{$self->getUsers()};
-    confess("One or more user names provided does not exist in TestRail.") unless scalar(@$names) == scalar(@ret);
+    my @ret = grep { defined $_ } map {
+        my $user = $_;
+        my @list = grep { $user->{'name'} eq $_ } @$names;
+        scalar(@list) ? $user->{'id'} : undef
+    } @{ $self->getUsers() };
+    confess("One or more user names provided does not exist in TestRail.")
+      unless scalar(@$names) == scalar(@ret);
     return @ret;
-};
+}
 
 =head1 PROJECT METHODS
 
@@ -391,8 +445,11 @@ Returns project definition HASHREF on success, false otherwise.
 =cut
 
 sub createProject {
-    state $check = compile(Object, Str, Optional[Maybe[Str]], Optional[Maybe[Bool]]);
-    my ($self,$name,$desc,$announce) = $check->(@_);
+    state $check = compile( Object, Str,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [Bool] ]
+    );
+    my ( $self, $name, $desc, $announce ) = $check->(@_);
 
     $desc     //= 'res ipsa loquiter';
     $announce //= 0;
@@ -403,7 +460,7 @@ sub createProject {
         show_announcement => $announce
     };
 
-    return $self->_doRequest('index.php?/api/v2/add_project','POST',$input);
+    return $self->_doRequest( 'index.php?/api/v2/add_project', 'POST', $input );
 }
 
 =head2 B<deleteProject (id)>
@@ -424,10 +481,11 @@ Returns BOOLEAN.
 =cut
 
 sub deleteProject {
-    state $check = compile(Object, Int);
-    my ($self,$proj) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $proj ) = $check->(@_);
 
-    return $self->_doRequest('index.php?/api/v2/delete_project/'.$proj,'POST');
+    return $self->_doRequest( 'index.php?/api/v2/delete_project/' . $proj,
+        'POST' );
 }
 
 =head2 B<getProjects ()>
@@ -447,12 +505,12 @@ sub getProjects {
     my $result = $self->_doRequest('index.php?/api/v2/get_projects');
 
     #Save state for future use, if needed
-    return -500 if !$result || (reftype($result) || 'undef') ne 'ARRAY';
+    return -500 if !$result || ( reftype($result) || 'undef' ) ne 'ARRAY';
     $self->{'testtree'} = $result;
 
     #Note that it's a project for future reference by recursive tree search
-    return -500 if !$result || (reftype($result) || 'undef') ne 'ARRAY';
-    foreach my $pj (@{$result}) {
+    return -500 if !$result || ( reftype($result) || 'undef' ) ne 'ARRAY';
+    foreach my $pj ( @{$result} ) {
         $pj->{'type'} = 'project';
     }
 
@@ -476,18 +534,18 @@ Returns desired project def HASHREF, false otherwise.
 =cut
 
 sub getProjectByName {
-    state $check = compile(Object, Str);
-    my ($self,$project) = $check->(@_);
+    state $check = compile( Object, Str );
+    my ( $self, $project ) = $check->(@_);
 
     #See if we already have the project list...
     my $projects = $self->{'testtree'};
-    return -500 if !$projects || (reftype($projects) || 'undef') ne 'ARRAY';
+    return -500 if !$projects || ( reftype($projects) || 'undef' ) ne 'ARRAY';
     $projects = $self->getProjects() unless scalar(@$projects);
 
     #Search project list for project
-    return -500 if !$projects || (reftype($projects) || 'undef') ne 'ARRAY';
+    return -500 if !$projects || ( reftype($projects) || 'undef' ) ne 'ARRAY';
     for my $candidate (@$projects) {
-        return $candidate if ($candidate->{'name'} eq $project);
+        return $candidate if ( $candidate->{'name'} eq $project );
     }
 
     return 0;
@@ -510,21 +568,22 @@ Returns desired project def HASHREF, false otherwise.
 =cut
 
 sub getProjectByID {
-    state $check = compile(Object, Int);
-    my ($self,$project) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $project ) = $check->(@_);
 
     #See if we already have the project list...
     my $projects = $self->{'testtree'};
     $projects = $self->getProjects() unless scalar(@$projects);
 
     #Search project list for project
-    return -500 if !$projects || (reftype($projects) || 'undef') ne 'ARRAY';
+    return -500 if !$projects || ( reftype($projects) || 'undef' ) ne 'ARRAY';
     for my $candidate (@$projects) {
-        return $candidate if ($candidate->{'id'} eq $project);
+        return $candidate if ( $candidate->{'id'} eq $project );
     }
 
     return 0;
 }
+
 =head1 TESTSUITE METHODS
 
 =head2 B<createTestSuite (project_id, name, [description])>
@@ -548,8 +607,8 @@ Returns TS definition HASHREF on success, false otherwise.
 =cut
 
 sub createTestSuite {
-    state $check = compile(Object, Int, Str, Optional[Maybe[Str]]);
-    my ($self,$project_id,$name,$details) = $check->(@_);
+    state $check = compile( Object, Int, Str, Optional [ Maybe [Str] ] );
+    my ( $self, $project_id, $name, $details ) = $check->(@_);
 
     $details //= 'res ipsa loquiter';
     my $input = {
@@ -557,7 +616,8 @@ sub createTestSuite {
         description => $details
     };
 
-    return $self->_doRequest('index.php?/api/v2/add_suite/'.$project_id,'POST',$input);
+    return $self->_doRequest( 'index.php?/api/v2/add_suite/' . $project_id,
+        'POST', $input );
 }
 
 =head2 B<deleteTestSuite (suite_id)>
@@ -577,10 +637,11 @@ Returns BOOLEAN.
 =cut
 
 sub deleteTestSuite {
-    state $check = compile(Object, Int);
-    my ($self,$suite_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $suite_id ) = $check->(@_);
 
-    return $self->_doRequest('index.php?/api/v2/delete_suite/'.$suite_id,'POST');
+    return $self->_doRequest( 'index.php?/api/v2/delete_suite/' . $suite_id,
+        'POST' );
 }
 
 =head2 B<getTestSuites (project_id)>
@@ -600,10 +661,10 @@ Returns ARRAYREF of testsuite definition HASHREFs, 0 on error.
 =cut
 
 sub getTestSuites {
-    state $check = compile(Object, Int);
-    my ($self,$proj) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $proj ) = $check->(@_);
 
-    return $self->_doRequest('index.php?/api/v2/get_suites/'.$proj);
+    return $self->_doRequest( 'index.php?/api/v2/get_suites/' . $proj );
 }
 
 =head2 B<getTestSuiteByName (project_id,testsuite_name)>
@@ -625,16 +686,19 @@ Returns desired testsuite definition HASHREF, false otherwise.
 =cut
 
 sub getTestSuiteByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$testsuite_name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $testsuite_name ) = $check->(@_);
 
     #TODO cache
     my $suites = $self->getTestSuites($project_id);
-    return -500 if !$suites || (reftype($suites) || 'undef') ne 'ARRAY'; #No suites for project, or no project
+    return -500
+      if !$suites
+      || ( reftype($suites) || 'undef' ) ne
+      'ARRAY';    #No suites for project, or no project
     foreach my $suite (@$suites) {
-        return  $suite if $suite->{'name'} eq $testsuite_name;
+        return $suite if $suite->{'name'} eq $testsuite_name;
     }
-    return 0; #Couldn't find it
+    return 0;     #Couldn't find it
 }
 
 =head2 B<getTestSuiteByID (testsuite_id)>
@@ -654,10 +718,10 @@ Returns desired testsuite definition HASHREF, false otherwise.
 =cut
 
 sub getTestSuiteByID {
-    state $check = compile(Object, Int);
-    my ($self,$testsuite_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $testsuite_id ) = $check->(@_);
 
-    return $self->_doRequest('index.php?/api/v2/get_suite/'.$testsuite_id);
+    return $self->_doRequest( 'index.php?/api/v2/get_suite/' . $testsuite_id );
 }
 
 =head1 SECTION METHODS
@@ -685,8 +749,8 @@ Returns new section definition HASHREF, false otherwise.
 =cut
 
 sub createSection {
-    state $check = compile(Object, Int, Int, Str, Optional[Maybe[Int]]);
-    my ($self,$project_id,$suite_id,$name,$parent_id) = $check->(@_);
+    state $check = compile( Object, Int, Int, Str, Optional [ Maybe [Int] ] );
+    my ( $self, $project_id, $suite_id, $name, $parent_id ) = $check->(@_);
 
     my $input = {
         name     => $name,
@@ -694,7 +758,8 @@ sub createSection {
     };
     $input->{'parent_id'} = $parent_id if $parent_id;
 
-    return $self->_doRequest('index.php?/api/v2/add_section/'.$project_id,'POST',$input);
+    return $self->_doRequest( 'index.php?/api/v2/add_section/' . $project_id,
+        'POST', $input );
 }
 
 =head2 B<deleteSection (section_id)>
@@ -714,10 +779,11 @@ Returns BOOLEAN.
 =cut
 
 sub deleteSection {
-    state $check = compile(Object, Int);
-    my ($self,$section_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $section_id ) = $check->(@_);
 
-    return $self->_doRequest('index.php?/api/v2/delete_section/'.$section_id,'POST');
+    return $self->_doRequest( 'index.php?/api/v2/delete_section/' . $section_id,
+        'POST' );
 }
 
 =head2 B<getSections (project_id,suite_id)>
@@ -739,12 +805,14 @@ Returns ARRAYREF of section definition HASHREFs.
 =cut
 
 sub getSections {
-    state $check = compile(Object, Int, Int);
-    my ($self,$project_id,$suite_id) = $check->(@_);
+    state $check = compile( Object, Int, Int );
+    my ( $self, $project_id, $suite_id ) = $check->(@_);
 
     #Cache sections to reduce requests in tight loops
-    return $self->{'sections'}->{$project_id} if $self->{'sections'}->{$project_id};
-    $self->{'sections'}->{$project_id} = $self->_doRequest("index.php?/api/v2/get_sections/$project_id&suite_id=$suite_id");
+    return $self->{'sections'}->{$project_id}
+      if $self->{'sections'}->{$project_id};
+    $self->{'sections'}->{$project_id} = $self->_doRequest(
+        "index.php?/api/v2/get_sections/$project_id&suite_id=$suite_id");
 
     return $self->{'sections'}->{$project_id};
 }
@@ -768,8 +836,8 @@ Returns section definition HASHREF.
 =cut
 
 sub getSectionByID {
-    state $check = compile(Object, Int);
-    my ($self,$section_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $section_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_section/$section_id");
 }
@@ -795,11 +863,11 @@ Returns section definition HASHREF.
 =cut
 
 sub getSectionByName {
-    state $check = compile(Object, Int, Int, Str);
-    my ($self,$project_id,$suite_id,$section_name) = $check->(@_);
+    state $check = compile( Object, Int, Int, Str );
+    my ( $self, $project_id, $suite_id, $section_name ) = $check->(@_);
 
-    my $sections = $self->getSections($project_id,$suite_id);
-    return -500 if !$sections || (reftype($sections) || 'undef') ne 'ARRAY';
+    my $sections = $self->getSections( $project_id, $suite_id );
+    return -500 if !$sections || ( reftype($sections) || 'undef' ) ne 'ARRAY';
     foreach my $sec (@$sections) {
         return $sec if $sec->{'name'} eq $section_name;
     }
@@ -827,18 +895,22 @@ Recursively searches for children, so the children of child sections will be ret
 =cut
 
 sub getChildSections {
-    state $check = compile(Object, Int, HashRef);
-    my ($self, $project_id, $section) = $check->(@_);
+    state $check = compile( Object, Int, HashRef );
+    my ( $self, $project_id, $section ) = $check->(@_);
 
-    my $sections_orig = $self->getSections($project_id,$section->{suite_id});
-    return [] if !$sections_orig || (reftype($sections_orig) || 'undef') ne 'ARRAY';
-    my @sections = grep { $_->{'parent_id'} ? $_->{'parent_id'} == $section->{'id'} : 0 } @$sections_orig;
+    my $sections_orig = $self->getSections( $project_id, $section->{suite_id} );
+    return []
+      if !$sections_orig || ( reftype($sections_orig) || 'undef' ) ne 'ARRAY';
+    my @sections =
+      grep { $_->{'parent_id'} ? $_->{'parent_id'} == $section->{'id'} : 0 }
+      @$sections_orig;
     foreach my $sec (@sections) {
-        push(@sections, grep { $_->{'parent_id'} ? $_->{'parent_id'} == $sec->{'id'} : 0 } @$sections_orig);
+        push( @sections,
+            grep { $_->{'parent_id'} ? $_->{'parent_id'} == $sec->{'id'} : 0 }
+              @$sections_orig );
     }
     return \@sections;
 }
-
 
 =head2 sectionNamesToIds(project_id,suite_id,names)
 
@@ -861,9 +933,10 @@ Throws an exception in the case of one (or more) of the names not corresponding 
 =cut
 
 sub sectionNamesToIds {
-    my ($self,$project_id,$suite_id,@names) = @_;
-    my $sections = $self->getSections($project_id,$suite_id) or confess("Could not find sections in provided project/suite.");
-    return _X_in_my_Y($self,$sections,'id',@names);
+    my ( $self, $project_id, $suite_id, @names ) = @_;
+    my $sections = $self->getSections( $project_id, $suite_id )
+      or confess("Could not find sections in provided project/suite.");
+    return _X_in_my_Y( $self, $sections, 'id', @names );
 }
 
 =head1 CASE METHODS
@@ -881,10 +954,10 @@ Returns ARRAYREF of case type definition HASHREFs.
 sub getCaseTypes {
     state $check = compile(Object);
     my ($self) = $check->(@_);
-    return clone($self->{'type_cache'}) if defined($self->{'type_cache'});
+    return clone( $self->{'type_cache'} ) if defined( $self->{'type_cache'} );
 
     my $types = $self->_doRequest("index.php?/api/v2/get_case_types");
-    return -500 if !$types || (reftype($types) || 'undef') ne 'ARRAY';
+    return -500 if !$types || ( reftype($types) || 'undef' ) ne 'ARRAY';
     $self->{'type_cache'} = $types;
 
     return clone $types;
@@ -908,11 +981,11 @@ Dies if named case type does not exist.
 =cut
 
 sub getCaseTypeByName {
-    state $check = compile(Object, Str);
-    my ($self,$name) = $check->(@_);
+    state $check = compile( Object, Str );
+    my ( $self, $name ) = $check->(@_);
 
     my $types = $self->getCaseTypes();
-    return -500 if !$types || (reftype($types) || 'undef') ne 'ARRAY';
+    return -500 if !$types || ( reftype($types) || 'undef' ) ne 'ARRAY';
     foreach my $type (@$types) {
         return $type if $type->{'name'} eq $name;
     }
@@ -936,10 +1009,9 @@ Throws an exception in the case of one (or more) of the names not corresponding 
 =cut
 
 sub typeNamesToIds {
-    my ($self,@names) = @_;
-    return _X_in_my_Y($self,$self->getCaseTypes(),'id',@names);
-};
-
+    my ( $self, @names ) = @_;
+    return _X_in_my_Y( $self, $self->getCaseTypes(), 'id', @names );
+}
 
 =head2 B<createCase(section_id,title,type_id,options,extra_options)>
 
@@ -979,8 +1051,12 @@ Returns new case definition HASHREF, false otherwise.
 =cut
 
 sub createCase {
-    state $check = compile(Object, Int, Str, Optional[Maybe[Int]], Optional[Maybe[HashRef]], Optional[Maybe[HashRef]]);
-    my ($self,$section_id,$title,$type_id,$opts,$extras) = $check->(@_);
+    state $check = compile( Object, Int, Str,
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [HashRef] ],
+        Optional [ Maybe [HashRef] ]
+    );
+    my ( $self, $section_id, $title, $type_id, $opts, $extras ) = $check->(@_);
 
     my $stuff = {
         title   => $title,
@@ -988,21 +1064,26 @@ sub createCase {
     };
 
     #Handle sort of optional but baked in options
-    if (defined($extras) && reftype($extras) eq 'HASH') {
-        $stuff->{'priority_id'}  = $extras->{'priority_id'}       if defined($extras->{'priority_id'});
-        $stuff->{'estimate'}     = $extras->{'estimate'}          if defined($extras->{'estimate'});
-        $stuff->{'milestone_id'} = $extras->{'milestone_id'}      if defined($extras->{'milestone_id'});
-        $stuff->{'refs'}         = join(',',@{$extras->{'refs'}}) if defined($extras->{'refs'});
+    if ( defined($extras) && reftype($extras) eq 'HASH' ) {
+        $stuff->{'priority_id'} = $extras->{'priority_id'}
+          if defined( $extras->{'priority_id'} );
+        $stuff->{'estimate'} = $extras->{'estimate'}
+          if defined( $extras->{'estimate'} );
+        $stuff->{'milestone_id'} = $extras->{'milestone_id'}
+          if defined( $extras->{'milestone_id'} );
+        $stuff->{'refs'} = join( ',', @{ $extras->{'refs'} } )
+          if defined( $extras->{'refs'} );
     }
 
     #Handle custom fields
-    if (defined($opts) && reftype($opts) eq 'HASH') {
-        foreach my $key (keys(%$opts)) {
+    if ( defined($opts) && reftype($opts) eq 'HASH' ) {
+        foreach my $key ( keys(%$opts) ) {
             $stuff->{"custom_$key"} = $opts->{$key};
         }
     }
 
-    return $self->_doRequest("index.php?/api/v2/add_case/$section_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_case/$section_id",
+        'POST', $stuff );
 }
 
 =head2 B<updateCase(case_id,options)>
@@ -1022,10 +1103,11 @@ Returns new case definition HASHREF, false otherwise.
 =cut
 
 sub updateCase {
-    state $check = compile(Object, Int, Optional[Maybe[HashRef]]);
-    my ($self,$case_id,$options) = $check->(@_);
+    state $check = compile( Object, Int, Optional [ Maybe [HashRef] ] );
+    my ( $self, $case_id, $options ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/update_case/$case_id",'POST',$options);
+    return $self->_doRequest( "index.php?/api/v2/update_case/$case_id",
+        'POST', $options );
 }
 
 =head2 B<deleteCase (case_id)>
@@ -1045,10 +1127,11 @@ Returns BOOLEAN.
 =cut
 
 sub deleteCase {
-    state $check = compile(Object, Int);
-    my ($self,$case_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $case_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/delete_case/$case_id",'POST');
+    return $self->_doRequest( "index.php?/api/v2/delete_case/$case_id",
+        'POST' );
 }
 
 =head2 B<getCases (project_id,suite_id,filters)>
@@ -1079,22 +1162,27 @@ Returns ARRAYREF of test case definition HASHREFs.
 =cut
 
 sub getCases {
-    state $check = compile(Object, Int, Int, Optional[Maybe[HashRef]]);
-    my ($self,$project_id,$suite_id,$filters) = $check->(@_);
+    state $check = compile( Object, Int, Int, Optional [ Maybe [HashRef] ] );
+    my ( $self, $project_id, $suite_id, $filters ) = $check->(@_);
 
     my $url = "index.php?/api/v2/get_cases/$project_id&suite_id=$suite_id";
 
-    my @valid_keys = qw{section_id created_after created_before created_by milestone_id priority_id type_id updated_after updated_before updated_by};
-
+    my @valid_keys =
+      qw{section_id created_after created_before created_by milestone_id priority_id type_id updated_after updated_before updated_by};
 
     # Add in filters
-    foreach my $filter (keys(%$filters)) {
-        confess("Invalid filter key '$filter' passed") unless grep {$_ eq $filter} @valid_keys;
-        if (ref $filters->{$filter} eq 'ARRAY') {
-            confess "$filter cannot be an ARRAYREF" if grep {$_ eq $filter} qw{created_after created_before updated_after updated_before};
-            $url .= "&$filter=".join(',',@{$filters->{$filter}});
-        } else {
-            $url .= "&$filter=".$filters->{$filter} if defined($filters->{$filter});
+    foreach my $filter ( keys(%$filters) ) {
+        confess("Invalid filter key '$filter' passed")
+          unless grep { $_ eq $filter } @valid_keys;
+        if ( ref $filters->{$filter} eq 'ARRAY' ) {
+            confess "$filter cannot be an ARRAYREF"
+              if grep { $_ eq $filter }
+              qw{created_after created_before updated_after updated_before};
+            $url .= "&$filter=" . join( ',', @{ $filters->{$filter} } );
+        }
+        else {
+            $url .= "&$filter=" . $filters->{$filter}
+              if defined( $filters->{$filter} );
         }
     }
 
@@ -1124,11 +1212,12 @@ Returns test case definition HASHREF.
 =cut
 
 sub getCaseByName {
-    state $check = compile(Object, Int, Int, Str, Optional[Maybe[HashRef]]);
-    my ($self,$project_id,$suite_id,$name,$filters) = $check->(@_);
+    state $check =
+      compile( Object, Int, Int, Str, Optional [ Maybe [HashRef] ] );
+    my ( $self, $project_id, $suite_id, $name, $filters ) = $check->(@_);
 
-    my $cases = $self->getCases($project_id,$suite_id,$filters);
-    return -500 if !$cases || (reftype($cases) || 'undef') ne 'ARRAY';
+    my $cases = $self->getCases( $project_id, $suite_id, $filters );
+    return -500 if !$cases || ( reftype($cases) || 'undef' ) ne 'ARRAY';
     foreach my $case (@$cases) {
         return $case if $case->{'title'} eq $name;
     }
@@ -1152,8 +1241,8 @@ Returns test case definition HASHREF.
 =cut
 
 sub getCaseByID {
-    state $check = compile(Object, Int);
-    my ($self,$case_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $case_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_case/$case_id");
 }
@@ -1190,8 +1279,15 @@ Returns run definition HASHREF.
 
 #If you pass an array of case ids, it implies include_all is false
 sub createRun {
-    state $check = compile(Object, Int, Int, Str, Optional[Maybe[Str]], Optional[Maybe[Int]], Optional[Maybe[Int]],  Optional[Maybe[ArrayRef[Int]]]);
-    my ($self,$project_id,$suite_id,$name,$desc,$milestone_id,$assignedto_id,$case_ids) = $check->(@_);
+    state $check = compile( Object, Int, Int, Str,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [ ArrayRef [Int] ] ]
+    );
+    my ( $self, $project_id, $suite_id, $name, $desc, $milestone_id,
+        $assignedto_id, $case_ids )
+      = $check->(@_);
 
     my $stuff = {
         suite_id      => $suite_id,
@@ -1203,7 +1299,8 @@ sub createRun {
         case_ids      => $case_ids
     };
 
-    return $self->_doRequest("index.php?/api/v2/add_run/$project_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_run/$project_id",
+        'POST', $stuff );
 }
 
 =head2 B<deleteRun (run_id)>
@@ -1223,10 +1320,10 @@ Returns BOOLEAN.
 =cut
 
 sub deleteRun {
-    state $check = compile(Object, Int);
-    my ($self,$run_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $run_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/delete_run/$run_id",'POST');
+    return $self->_doRequest( "index.php?/api/v2/delete_run/$run_id", 'POST' );
 }
 
 =head2 B<getRuns (project_id)>
@@ -1248,17 +1345,23 @@ Returns ARRAYREF of run definition HASHREFs.
 =cut
 
 sub getRuns {
-    state $check = compile(Object, Int);
-    my ($self,$project_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $project_id ) = $check->(@_);
 
-    my $initial_runs = $self->getRunsPaginated($project_id,$self->{'global_limit'},0);
-    return $initial_runs unless (reftype($initial_runs) || 'undef') eq 'ARRAY';
+    my $initial_runs =
+      $self->getRunsPaginated( $project_id, $self->{'global_limit'}, 0 );
+    return $initial_runs
+      unless ( reftype($initial_runs) || 'undef' ) eq 'ARRAY';
     my $runs = [];
-    push(@$runs,@$initial_runs);
+    push( @$runs, @$initial_runs );
     my $offset = 1;
-    while (scalar(@$initial_runs) == $self->{'global_limit'}) {
-        $initial_runs = $self->getRunsPaginated($project_id,$self->{'global_limit'},($self->{'global_limit'} * $offset));
-        push(@$runs,@$initial_runs);
+    while ( scalar(@$initial_runs) == $self->{'global_limit'} ) {
+        $initial_runs = $self->getRunsPaginated(
+            $project_id,
+            $self->{'global_limit'},
+            ( $self->{'global_limit'} * $offset )
+        );
+        push( @$runs, @$initial_runs );
         $offset++;
     }
     return $runs;
@@ -1285,13 +1388,16 @@ Returns ARRAYREF of run definition HASHREFs.
 =cut
 
 sub getRunsPaginated {
-    state $check = compile(Object, Int, Optional[Maybe[Int]], Optional[Maybe[Int]]);
-    my ($self,$project_id,$limit,$offset) = $check->(@_);
+    state $check = compile( Object, Int, Optional [ Maybe [Int] ],
+        Optional [ Maybe [Int] ] );
+    my ( $self, $project_id, $limit, $offset ) = $check->(@_);
 
-    confess("Limit greater than ".$self->{'global_limit'}) if $limit > $self->{'global_limit'};
+    confess( "Limit greater than " . $self->{'global_limit'} )
+      if $limit > $self->{'global_limit'};
     my $apiurl = "index.php?/api/v2/get_runs/$project_id";
     $apiurl .= "&offset=$offset" if defined($offset);
-    $apiurl .= "&limit=$limit" if $limit; #You have problems if you want 0 results
+    $apiurl .= "&limit=$limit"
+      if $limit;    #You have problems if you want 0 results
     return $self->_doRequest($apiurl);
 }
 
@@ -1314,11 +1420,11 @@ Returns run definition HASHREF.
 =cut
 
 sub getRunByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $name ) = $check->(@_);
 
     my $runs = $self->getRuns($project_id);
-    return -500 if !$runs || (reftype($runs) || 'undef') ne 'ARRAY';
+    return -500 if !$runs || ( reftype($runs) || 'undef' ) ne 'ARRAY';
     foreach my $run (@$runs) {
         return $run if $run->{'name'} eq $name;
     }
@@ -1342,8 +1448,8 @@ Returns run definition HASHREF.
 =cut
 
 sub getRunByID {
-    state $check = compile(Object, Int);
-    my ($self,$run_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $run_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_run/$run_id");
 }
@@ -1365,10 +1471,10 @@ Returns run definition HASHREF on success, false on failure.
 =cut
 
 sub closeRun {
-    state $check = compile(Object, Int);
-    my ($self,$run_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $run_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/close_run/$run_id",'POST');
+    return $self->_doRequest( "index.php?/api/v2/close_run/$run_id", 'POST' );
 }
 
 =head2 B<getRunSummary(runs)>
@@ -1389,30 +1495,52 @@ Returns ARRAY of run HASHREFs with the added key 'run_status' holding a hashref 
 =cut
 
 sub getRunSummary {
-    state $check = compile(Object, slurpy ArrayRef[HashRef]);
-    my ($self,$runs) = $check->(@_);
+    state $check = compile( Object, slurpy ArrayRef [HashRef] );
+    my ( $self, $runs ) = $check->(@_);
     confess("At least one run must be passed!") unless scalar(@$runs);
 
     #Translate custom statuses
     my $statuses = $self->getPossibleTestStatuses();
     my %shash;
+
     #XXX so, they do these tricks with the status names, see...so map the counts to their relevant status ids.
-    @shash{map { ( $_->{'id'} < 6 ) ? $_->{'name'}."_count" : "custom_status".($_->{'id'} - 5)."_count" } @$statuses } = map { $_->{'id'} } @$statuses;
+    @shash{
+        map {
+            ( $_->{'id'} < 6 )
+              ? $_->{'name'} . "_count"
+              : "custom_status"
+              . ( $_->{'id'} - 5 )
+              . "_count"
+        } @$statuses
+    } = map { $_->{'id'} } @$statuses;
 
     my @sname;
+
     #Create listing of keys/values
     @$runs = map {
         my $run = $_;
-        @{$run->{statuses}}{grep {$_ =~ m/_count$/} keys(%$run)} = grep {$_ =~ m/_count$/} keys(%$run);
-        foreach my $status (keys(%{$run->{'statuses'}})) {
-            next if !exists($shash{$status});
-            @sname = grep {exists($shash{$status}) && $_->{'id'} == $shash{$status}} @$statuses;
-            $run->{'statuses_clean'}->{$sname[0]->{'label'}} = $run->{$status};
+        @{ $run->{statuses} }{ grep { $_ =~ m/_count$/ } keys(%$run) } =
+          grep { $_ =~ m/_count$/ } keys(%$run);
+        foreach my $status ( keys( %{ $run->{'statuses'} } ) ) {
+            next if !exists( $shash{$status} );
+            @sname = grep {
+                exists( $shash{$status} )
+                  && $_->{'id'} == $shash{$status}
+            } @$statuses;
+            $run->{'statuses_clean'}->{ $sname[0]->{'label'} } =
+              $run->{$status};
         }
         $run;
     } @$runs;
 
-    return map { {'id' => $_->{'id'}, 'name' => $_->{'name'}, 'run_status' => $_->{'statuses_clean'}, 'config_ids' => $_->{'config_ids'} } } @$runs;
+    return map {
+        {
+            'id'         => $_->{'id'},
+            'name'       => $_->{'name'},
+            'run_status' => $_->{'statuses_clean'},
+            'config_ids' => $_->{'config_ids'}
+        }
+    } @$runs;
 
 }
 
@@ -1433,17 +1561,23 @@ you will need to use getTestResults.
 =cut
 
 sub getRunResults {
-    state $check = compile(Object, Int);
-    my ($self,$run_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $run_id ) = $check->(@_);
 
-    my $initial_results = $self->getRunResultsPaginated($run_id,$self->{'global_limit'},undef);
-    return $initial_results unless (reftype($initial_results) || 'undef') eq 'ARRAY';
+    my $initial_results =
+      $self->getRunResultsPaginated( $run_id, $self->{'global_limit'}, undef );
+    return $initial_results
+      unless ( reftype($initial_results) || 'undef' ) eq 'ARRAY';
     my $results = [];
-    push(@$results,@$initial_results);
+    push( @$results, @$initial_results );
     my $offset = 1;
-    while (scalar(@$initial_results) == $self->{'global_limit'}) {
-        $initial_results = $self->getRunResultsPaginated($run_id,$self->{'global_limit'},($self->{'global_limit'} * $offset));
-        push(@$results,@$initial_results);
+    while ( scalar(@$initial_results) == $self->{'global_limit'} ) {
+        $initial_results = $self->getRunResultsPaginated(
+            $run_id,
+            $self->{'global_limit'},
+            ( $self->{'global_limit'} * $offset )
+        );
+        push( @$results, @$initial_results );
         $offset++;
     }
     return $results;
@@ -1454,13 +1588,16 @@ sub getRunResults {
 =cut
 
 sub getRunResultsPaginated {
-    state $check = compile(Object, Int, Optional[Maybe[Int]], Optional[Maybe[Int]]);
-    my ($self,$run_id,$limit,$offset) = $check->(@_);
+    state $check = compile( Object, Int, Optional [ Maybe [Int] ],
+        Optional [ Maybe [Int] ] );
+    my ( $self, $run_id, $limit, $offset ) = $check->(@_);
 
-    confess("Limit greater than ".$self->{'global_limit'}) if $limit > $self->{'global_limit'};
+    confess( "Limit greater than " . $self->{'global_limit'} )
+      if $limit > $self->{'global_limit'};
     my $apiurl = "index.php?/api/v2/get_results_for_run/$run_id";
     $apiurl .= "&offset=$offset" if defined($offset);
-    $apiurl .= "&limit=$limit" if $limit; #You have problems if you want 0 results
+    $apiurl .= "&limit=$limit"
+      if $limit;    #You have problems if you want 0 results
     return $self->_doRequest($apiurl);
 }
 
@@ -1481,14 +1618,18 @@ Returns ARRAYREF of run definition HASHREFs.  Returns 0 upon failure to extract 
 =cut
 
 sub getChildRuns {
-    state $check = compile(Object, HashRef);
-    my ($self,$plan) = $check->(@_);
+    state $check = compile( Object, HashRef );
+    my ( $self, $plan ) = $check->(@_);
 
-    return 0 unless defined($plan->{'entries'}) && (reftype($plan->{'entries'}) || 'undef') eq 'ARRAY';
+    return 0
+      unless defined( $plan->{'entries'} )
+      && ( reftype( $plan->{'entries'} ) || 'undef' ) eq 'ARRAY';
     my $entries = $plan->{'entries'};
-    my $plans = [];
+    my $plans   = [];
     foreach my $entry (@$entries) {
-        push(@$plans,@{$entry->{'runs'}}) if defined($entry->{'runs'}) && ((reftype($entry->{'runs'}) || 'undef') eq 'ARRAY')
+        push( @$plans, @{ $entry->{'runs'} } )
+          if defined( $entry->{'runs'} )
+          && ( ( reftype( $entry->{'runs'} ) || 'undef' ) eq 'ARRAY' );
     }
     return $plans;
 }
@@ -1515,35 +1656,43 @@ Will throw a fatal error if one or more of the configurations passed does not ex
 =cut
 
 sub getChildRunByName {
-    state $check = compile(Object, HashRef, Str, Optional[Maybe[ArrayRef[Str]]], Optional[Maybe[Int]]);
-    my ($self,$plan,$name,$configurations,$testsuite_id) = $check->(@_);
+    state $check = compile( Object, HashRef, Str,
+        Optional [ Maybe [ ArrayRef [Str] ] ],
+        Optional [ Maybe [Int] ]
+    );
+    my ( $self, $plan, $name, $configurations, $testsuite_id ) = $check->(@_);
 
     my $runs = $self->getChildRuns($plan);
-    @$runs = grep {$_->{suite_id} == $testsuite_id}  @$runs if $testsuite_id;
+    @$runs = grep { $_->{suite_id} == $testsuite_id } @$runs if $testsuite_id;
     return 0 if !$runs;
 
     my @pconfigs = ();
 
     #Figure out desired config IDs
-    if (defined $configurations) {
-        my $avail_configs = $self->getConfigurations($plan->{'project_id'});
+    if ( defined $configurations ) {
+        my $avail_configs = $self->getConfigurations( $plan->{'project_id'} );
         my ($cname);
-        @pconfigs = map {$_->{'id'}} grep { $cname = $_->{'name'}; grep {$_ eq $cname} @$configurations } @$avail_configs; #Get a list of IDs from the names passed
+        @pconfigs = map { $_->{'id'} } grep {
+            $cname = $_->{'name'};
+            grep { $_ eq $cname } @$configurations
+        } @$avail_configs;    #Get a list of IDs from the names passed
     }
-    confess("One or more configurations passed does not exist in your project!") if defined($configurations) && (scalar(@pconfigs) != scalar(@$configurations));
+    confess("One or more configurations passed does not exist in your project!")
+      if defined($configurations)
+      && ( scalar(@pconfigs) != scalar(@$configurations) );
 
     my $found;
     foreach my $run (@$runs) {
         next if $run->{name} ne $name;
-        next if scalar(@pconfigs) != scalar(@{$run->{'config_ids'}});
+        next if scalar(@pconfigs) != scalar( @{ $run->{'config_ids'} } );
 
         #Compare run config IDs against desired, invalidate run if all conditions not satisfied
         $found = 0;
-        foreach my $cid (@{$run->{'config_ids'}}) {
-            $found++ if grep {$_ == $cid} @pconfigs;
+        foreach my $cid ( @{ $run->{'config_ids'} } ) {
+            $found++ if grep { $_ == $cid } @pconfigs;
         }
 
-        return $run if $found == scalar(@{$run->{'config_ids'}});
+        return $run if $found == scalar( @{ $run->{'config_ids'} } );
     }
     return 0;
 }
@@ -1581,17 +1730,23 @@ Returns test plan definition HASHREF, or false on failure.
 =cut
 
 sub createPlan {
-    state $check = compile(Object, Int, Str, Optional[Maybe[Str]], Optional[Maybe[Int]], Optional[Maybe[ArrayRef[HashRef]]]);
-    my ($self,$project_id,$name,$desc,$milestone_id,$entries) = $check->(@_);
+    state $check = compile( Object, Int, Str,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [ ArrayRef [HashRef] ] ]
+    );
+    my ( $self, $project_id, $name, $desc, $milestone_id, $entries ) =
+      $check->(@_);
 
     my $stuff = {
-        name          => $name,
-        description   => $desc,
-        milestone_id  => $milestone_id,
-        entries       => $entries
+        name         => $name,
+        description  => $desc,
+        milestone_id => $milestone_id,
+        entries      => $entries
     };
 
-    return $self->_doRequest("index.php?/api/v2/add_plan/$project_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_plan/$project_id",
+        'POST', $stuff );
 }
 
 =head2 B<deletePlan (plan_id)>
@@ -1611,10 +1766,11 @@ Returns BOOLEAN.
 =cut
 
 sub deletePlan {
-    state $check = compile(Object, Int);
-    my ($self,$plan_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $plan_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/delete_plan/$plan_id",'POST');
+    return $self->_doRequest( "index.php?/api/v2/delete_plan/$plan_id",
+        'POST' );
 }
 
 =head2 B<getPlans (project_id,filters)>
@@ -1656,17 +1812,23 @@ Possible filters:
 =cut
 
 sub getPlans {
-    state $check = compile(Object, Int, Optional[Maybe[HashRef]]);
-    my ($self,$project_id, $filters) = $check->(@_);
+    state $check = compile( Object, Int, Optional [ Maybe [HashRef] ] );
+    my ( $self, $project_id, $filters ) = $check->(@_);
 
-    my $initial_plans = $self->getPlansPaginated($project_id,$self->{'global_limit'},0);
-    return $initial_plans unless (reftype($initial_plans) || 'undef') eq 'ARRAY';
+    my $initial_plans =
+      $self->getPlansPaginated( $project_id, $self->{'global_limit'}, 0 );
+    return $initial_plans
+      unless ( reftype($initial_plans) || 'undef' ) eq 'ARRAY';
     my $plans = [];
-    push(@$plans,@$initial_plans);
+    push( @$plans, @$initial_plans );
     my $offset = 1;
-    while (scalar(@$initial_plans) == $self->{'global_limit'}) {
-        $initial_plans = $self->getPlansPaginated($project_id,$self->{'global_limit'},($self->{'global_limit'} * $offset),$filters);
-        push(@$plans,@$initial_plans);
+    while ( scalar(@$initial_plans) == $self->{'global_limit'} ) {
+        $initial_plans = $self->getPlansPaginated(
+            $project_id,
+            $self->{'global_limit'},
+            ( $self->{'global_limit'} * $offset ), $filters
+        );
+        push( @$plans, @$initial_plans );
         $offset++;
     }
     return $plans;
@@ -1695,15 +1857,22 @@ Returns ARRAYREF of plan definition HASHREFs.
 =cut
 
 sub getPlansPaginated {
-    state $check = compile(Object, Int, Optional[Maybe[Int]], Optional[Maybe[Int]], Optional[Maybe[HashRef]]);
-    my ($self,$project_id,$limit,$offset, $filters) = $check->(@_);
+    state $check = compile( Object,
+        Int,
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [HashRef] ]
+    );
+    my ( $self, $project_id, $limit, $offset, $filters ) = $check->(@_);
     $filters //= {};
 
-    confess("Limit greater than ".$self->{'global_limit'}) if $limit > $self->{'global_limit'};
+    confess( "Limit greater than " . $self->{'global_limit'} )
+      if $limit > $self->{'global_limit'};
     my $apiurl = "index.php?/api/v2/get_plans/$project_id";
     $apiurl .= "&offset=$offset" if defined($offset);
-    $apiurl .= "&limit=$limit" if $limit; #You have problems if you want 0 results
-    foreach my $key (keys(%$filters)) {
+    $apiurl .= "&limit=$limit"
+      if $limit;    #You have problems if you want 0 results
+    foreach my $key ( keys(%$filters) ) {
         $apiurl .= "&$key=$filters->{$key}";
     }
     return $self->_doRequest($apiurl);
@@ -1728,14 +1897,14 @@ Returns plan definition HASHREF.
 =cut
 
 sub getPlanByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $name ) = $check->(@_);
 
     my $plans = $self->getPlans($project_id);
-    return -500 if !$plans || (reftype($plans) || 'undef') ne 'ARRAY';
+    return -500 if !$plans || ( reftype($plans) || 'undef' ) ne 'ARRAY';
     foreach my $plan (@$plans) {
-        if ($plan->{'name'} eq $name) {
-            return $self->getPlanByID($plan->{'id'});
+        if ( $plan->{'name'} eq $name ) {
+            return $self->getPlanByID( $plan->{'id'} );
         }
     }
     return 0;
@@ -1758,8 +1927,8 @@ Returns plan definition HASHREF.
 =cut
 
 sub getPlanByID {
-    state $check = compile(Object, Int);
-    my ($self,$plan_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $plan_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_plan/$plan_id");
 }
@@ -1781,17 +1950,17 @@ The 'percentages' key has the same, but as a percentage of the total.
 =cut
 
 sub getPlanSummary {
-    state $check = compile(Object, Int);
-    my ($self,$plan_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $plan_id ) = $check->(@_);
 
-    my $runs = $self->getPlanByID( $plan_id );
-    $runs = $self->getChildRuns( $runs );
-    @$runs = $self->getRunSummary(@{$runs});
+    my $runs = $self->getPlanByID($plan_id);
+    $runs  = $self->getChildRuns($runs);
+    @$runs = $self->getRunSummary( @{$runs} );
     my $total_sum = 0;
     my $ret = { plan => $plan_id };
 
     #Compile totals
-    foreach my $summary ( @$runs ) {
+    foreach my $summary (@$runs) {
         my @elems = keys( %{ $summary->{'run_status'} } );
         foreach my $key (@elems) {
             $ret->{'totals'}->{$key} = 0 if !defined $ret->{'totals'}->{$key};
@@ -1801,9 +1970,10 @@ sub getPlanSummary {
     }
 
     #Compile percentages
-    foreach my $key (keys(%{$ret->{'totals'}})) {
-        next if grep {$_ eq $key} qw{plan configs percentages};
-        $ret->{"percentages"}->{$key} = sprintf( "%.2f%%", ( $ret->{'totals'}->{$key} / $total_sum ) * 100 );
+    foreach my $key ( keys( %{ $ret->{'totals'} } ) ) {
+        next if grep { $_ eq $key } qw{plan configs percentages};
+        $ret->{"percentages"}->{$key} =
+          sprintf( "%.2f%%", ( $ret->{'totals'}->{$key} / $total_sum ) * 100 );
     }
 
     return $ret;
@@ -1837,8 +2007,14 @@ Returns run definition HASHREF.
 
 #If you pass an array of case ids, it implies include_all is false
 sub createRunInPlan {
-    state $check = compile(Object, Int, Int, Str, Optional[Maybe[Int]], Optional[Maybe[ArrayRef[Int]]], Optional[Maybe[ArrayRef[Int]]]);
-    my ($self,$plan_id,$suite_id,$name,$assignedto_id,$config_ids,$case_ids) = $check->(@_);
+    state $check = compile( Object, Int, Int, Str,
+        Optional [ Maybe [Int] ],
+        Optional [ Maybe [ ArrayRef [Int] ] ],
+        Optional [ Maybe [ ArrayRef [Int] ] ]
+    );
+    my ( $self, $plan_id, $suite_id, $name, $assignedto_id, $config_ids,
+        $case_ids )
+      = $check->(@_);
 
     my $runs = [
         {
@@ -1857,7 +2033,8 @@ sub createRunInPlan {
         config_ids    => $config_ids,
         runs          => $runs
     };
-    return $self->_doRequest("index.php?/api/v2/add_plan_entry/$plan_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_plan_entry/$plan_id",
+        'POST', $stuff );
 }
 
 =head2 B<closePlan (plan_id)>
@@ -1877,10 +2054,10 @@ Returns plan definition HASHREF on success, false on failure.
 =cut
 
 sub closePlan {
-    state $check = compile(Object, Int);
-    my ($self,$plan_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $plan_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/close_plan/$plan_id",'POST');
+    return $self->_doRequest( "index.php?/api/v2/close_plan/$plan_id", 'POST' );
 }
 
 =head1 MILESTONE METHODS
@@ -1908,16 +2085,20 @@ Returns milestone definition HASHREF, or false on failure.
 =cut
 
 sub createMilestone {
-    state $check = compile(Object, Int, Str, Optional[Maybe[Str]], Optional[Maybe[Int]]);
-    my ($self,$project_id,$name,$desc,$due_on) = $check->(@_);
+    state $check = compile( Object, Int, Str,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [Int] ]
+    );
+    my ( $self, $project_id, $name, $desc, $due_on ) = $check->(@_);
 
     my $stuff = {
         name        => $name,
         description => $desc,
-        due_on      => $due_on # unix timestamp
+        due_on      => $due_on    # unix timestamp
     };
 
-    return $self->_doRequest("index.php?/api/v2/add_milestone/$project_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_milestone/$project_id",
+        'POST', $stuff );
 }
 
 =head2 B<deleteMilestone (milestone_id)>
@@ -1937,10 +2118,11 @@ Returns BOOLEAN.
 =cut
 
 sub deleteMilestone {
-    state $check = compile(Object, Int);
-    my ($self,$milestone_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $milestone_id ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/delete_milestone/$milestone_id",'POST');
+    return $self->_doRequest(
+        "index.php?/api/v2/delete_milestone/$milestone_id", 'POST' );
 }
 
 =head2 B<getMilestones (project_id)>
@@ -1961,8 +2143,8 @@ Returns ARRAYREF of milestone definition HASHREFs.
 =cut
 
 sub getMilestones {
-    state $check = compile(Object, Int);
-    my ($self,$project_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $project_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_milestones/$project_id");
 }
@@ -1986,11 +2168,12 @@ Returns milestone definition HASHREF.
 =cut
 
 sub getMilestoneByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $name ) = $check->(@_);
 
     my $milestones = $self->getMilestones($project_id);
-    return -500 if !$milestones || (reftype($milestones) || 'undef') ne 'ARRAY';
+    return -500
+      if !$milestones || ( reftype($milestones) || 'undef' ) ne 'ARRAY';
     foreach my $milestone (@$milestones) {
         return $milestone if $milestone->{'name'} eq $name;
     }
@@ -2014,8 +2197,8 @@ Returns milestone definition HASHREF.
 =cut
 
 sub getMilestoneByID {
-    state $check = compile(Object, Int);
-    my ($self,$milestone_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $milestone_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_milestone/$milestone_id");
 }
@@ -2043,13 +2226,21 @@ Returns ARRAYREF of test definition HASHREFs.
 =cut
 
 sub getTests {
-    state $check = compile(Object, Int, Optional[Maybe[ArrayRef[Int]]], Optional[Maybe[ArrayRef[Int]]]);
-    my ($self,$run_id,$status_ids,$assignedto_ids) = $check->(@_);
+    state $check = compile( Object, Int,
+        Optional [ Maybe [ ArrayRef [Int] ] ],
+        Optional [ Maybe [ ArrayRef [Int] ] ]
+    );
+    my ( $self, $run_id, $status_ids, $assignedto_ids ) = $check->(@_);
 
     my $query_string = '';
-    $query_string = '&status_id='.join(',',@$status_ids) if defined($status_ids) && scalar(@$status_ids);
-    my $results = $self->_doRequest("index.php?/api/v2/get_tests/$run_id$query_string");
-    @$results = grep {my $aid = $_->{'assignedto_id'}; grep {defined($aid) && $aid == $_} @$assignedto_ids} @$results if defined($assignedto_ids) && scalar(@$assignedto_ids);
+    $query_string = '&status_id=' . join( ',', @$status_ids )
+      if defined($status_ids) && scalar(@$status_ids);
+    my $results =
+      $self->_doRequest("index.php?/api/v2/get_tests/$run_id$query_string");
+    @$results = grep {
+        my $aid = $_->{'assignedto_id'};
+        grep { defined($aid) && $aid == $_ } @$assignedto_ids
+    } @$results if defined($assignedto_ids) && scalar(@$assignedto_ids);
 
     #Cache stuff for getTestByName
     $self->{tests_cache} //= {};
@@ -2081,14 +2272,14 @@ Returns test definition HASHREF.
 =cut
 
 sub getTestByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$run_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $run_id, $name ) = $check->(@_);
 
     $self->{tests_cache} //= {};
     my $tests = $self->{tests_cache}->{$run_id};
 
     $tests = $self->getTests($run_id) if !$tests;
-    return -500 if !$tests || (reftype($tests) || 'undef') ne 'ARRAY';
+    return -500 if !$tests || ( reftype($tests) || 'undef' ) ne 'ARRAY';
     foreach my $test (@$tests) {
         return $test if $test->{'title'} eq $name;
     }
@@ -2112,8 +2303,8 @@ Returns test definition HASHREF.
 =cut
 
 sub getTestByID {
-    state $check = compile(Object, Int);
-    my ($self,$test_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $test_id ) = $check->(@_);
 
     return $self->_doRequest("index.php?/api/v2/get_test/$test_id");
 }
@@ -2130,8 +2321,9 @@ sub getTestResultFields {
     state $check = compile(Object);
     my ($self) = $check->(@_);
 
-    return $self->{'tr_fields'} if defined($self->{'tr_fields'}); #cache
-    $self->{'tr_fields'} = $self->_doRequest('index.php?/api/v2/get_result_fields');
+    return $self->{'tr_fields'} if defined( $self->{'tr_fields'} );    #cache
+    $self->{'tr_fields'} =
+      $self->_doRequest('index.php?/api/v2/get_result_fields');
     return $self->{'tr_fields'};
 }
 
@@ -2152,21 +2344,26 @@ Returns a value less than 0 if unsuccessful.
 =cut
 
 sub getTestResultFieldByName {
-    state $check = compile(Object, Str, Optional[Maybe[Int]]);
-    my ($self,$system_name,$project_id) = $check->(@_);
+    state $check = compile( Object, Str, Optional [ Maybe [Int] ] );
+    my ( $self, $system_name, $project_id ) = $check->(@_);
 
-    my @candidates = grep { $_->{'name'} eq $system_name} @{$self->getTestResultFields()};
-    return 0 if !scalar(@candidates); #No such name
-    return -1 if ref($candidates[0]) ne 'HASH';
-    return -2 if ref($candidates[0]->{'configs'}) ne 'ARRAY' && !scalar(@{$candidates[0]->{'configs'}}); #bogofilter
+    my @candidates =
+      grep { $_->{'name'} eq $system_name } @{ $self->getTestResultFields() };
+    return 0  if !scalar(@candidates);              #No such name
+    return -1 if ref( $candidates[0] ) ne 'HASH';
+    return -2
+      if ref( $candidates[0]->{'configs'} ) ne 'ARRAY'
+      && !scalar( @{ $candidates[0]->{'configs'} } );    #bogofilter
 
     #Give it to the user
-    my $ret = $candidates[0]; #copy/save for later
+    my $ret = $candidates[0];                            #copy/save for later
     return $ret if !defined($project_id);
 
     #Filter by project ID
-    foreach my $config (@{$candidates[0]->{'configs'}}) {
-        return $ret if ( grep { $_ == $project_id} @{ $config->{'context'}->{'project_ids'} } )
+    foreach my $config ( @{ $candidates[0]->{'configs'} } ) {
+        return $ret
+          if ( grep { $_ == $project_id }
+            @{ $config->{'context'}->{'project_ids'} } );
     }
 
     return -3;
@@ -2187,7 +2384,8 @@ sub getPossibleTestStatuses {
     my ($self) = $check->(@_);
     return $self->{'status_cache'} if $self->{'status_cache'};
 
-    $self->{'status_cache'} = $self->_doRequest('index.php?/api/v2/get_statuses');
+    $self->{'status_cache'} =
+      $self->_doRequest('index.php?/api/v2/get_statuses');
     return clone $self->{'status_cache'};
 }
 
@@ -2209,9 +2407,9 @@ Throws an exception in the case of one (or more) of the names not corresponding 
 =cut
 
 sub statusNamesToIds {
-    my ($self,@names) = @_;
-    return _X_in_my_Y($self,$self->getPossibleTestStatuses(),'id',@names);
-};
+    my ( $self, @names ) = @_;
+    return _X_in_my_Y( $self, $self->getPossibleTestStatuses(), 'id', @names );
+}
 
 =head2 statusNamesToLabels(names)
 
@@ -2231,27 +2429,29 @@ Throws an exception in the case of one (or more) of the names not corresponding 
 =cut
 
 sub statusNamesToLabels {
-    my ($self,@names) = @_;
-    return _X_in_my_Y($self,$self->getPossibleTestStatuses(),'label',@names);
-};
+    my ( $self, @names ) = @_;
+    return _X_in_my_Y( $self, $self->getPossibleTestStatuses(), 'label',
+        @names );
+}
 
 # Reduce code duplication with internal methods?
 # It's more likely than you think
 # Free PC check @ cpan.org
 sub _X_in_my_Y {
-    state $check = compile(Object, ArrayRef, Str, slurpy ArrayRef[Str]);
-    my ($self,$search_arr,$key,$names) = $check->(@_);
+    state $check = compile( Object, ArrayRef, Str, slurpy ArrayRef [Str] );
+    my ( $self, $search_arr, $key, $names ) = $check->(@_);
 
     my @ret;
     foreach my $name (@$names) {
         foreach my $member (@$search_arr) {
-            if ($member->{'name'} eq $name) {
+            if ( $member->{'name'} eq $name ) {
                 push @ret, $member->{$key};
                 last;
             }
         }
     }
-    confess("One or more names provided does not exist in TestRail.") unless scalar(@$names) == scalar(@ret);
+    confess("One or more names provided does not exist in TestRail.")
+      unless scalar(@$names) == scalar(@ret);
     return @ret;
 }
 
@@ -2303,30 +2503,44 @@ Returns result definition HASHREF.
 =cut
 
 sub createTestResults {
-    state $check = compile(Object, Int, Int, Optional[Maybe[Str]], Optional[Maybe[HashRef]], Optional[Maybe[HashRef]]);
-    my ($self,$test_id,$status_id,$comment,$opts,$custom_fields) = $check->(@_);
+    state $check = compile( Object, Int, Int,
+        Optional [ Maybe [Str] ],
+        Optional [ Maybe [HashRef] ],
+        Optional [ Maybe [HashRef] ]
+    );
+    my ( $self, $test_id, $status_id, $comment, $opts, $custom_fields ) =
+      $check->(@_);
 
     my $stuff = {
-        status_id     => $status_id,
-        comment       => $comment
+        status_id => $status_id,
+        comment   => $comment
     };
 
     #Handle options
-    if (defined($opts) && reftype($opts) eq 'HASH') {
-        $stuff->{'version'}       = defined($opts->{'version'}) ? $opts->{'version'} : undef;
-        $stuff->{'elapsed'}       = defined($opts->{'elapsed'}) ? $opts->{'elapsed'} : undef;
-        $stuff->{'defects'}       = defined($opts->{'defects'}) ? join(',',@{$opts->{'defects'}}) : undef;
-        $stuff->{'assignedto_id'} = defined($opts->{'assignedto_id'}) ? $opts->{'assignedto_id'} : undef;
+    if ( defined($opts) && reftype($opts) eq 'HASH' ) {
+        $stuff->{'version'} =
+          defined( $opts->{'version'} ) ? $opts->{'version'} : undef;
+        $stuff->{'elapsed'} =
+          defined( $opts->{'elapsed'} ) ? $opts->{'elapsed'} : undef;
+        $stuff->{'defects'} =
+          defined( $opts->{'defects'} )
+          ? join( ',', @{ $opts->{'defects'} } )
+          : undef;
+        $stuff->{'assignedto_id'} =
+          defined( $opts->{'assignedto_id'} )
+          ? $opts->{'assignedto_id'}
+          : undef;
     }
 
     #Handle custom fields
-    if (defined($custom_fields) && reftype($custom_fields) eq 'HASH') {
-        foreach my $field (keys(%$custom_fields)) {
+    if ( defined($custom_fields) && reftype($custom_fields) eq 'HASH' ) {
+        foreach my $field ( keys(%$custom_fields) ) {
             $stuff->{"custom_$field"} = $custom_fields->{$field};
         }
     }
 
-    return $self->_doRequest("index.php?/api/v2/add_result/$test_id",'POST',$stuff);
+    return $self->_doRequest( "index.php?/api/v2/add_result/$test_id",
+        'POST', $stuff );
 }
 
 =head2 bulkAddResults(run_id,results)
@@ -2346,10 +2560,11 @@ Returns ARRAYREF of result definition HASHREFs.
 =cut
 
 sub bulkAddResults {
-    state $check = compile(Object, Int, ArrayRef[HashRef]);
-    my ($self,$run_id, $results) = $check->(@_);
+    state $check = compile( Object, Int, ArrayRef [HashRef] );
+    my ( $self, $run_id, $results ) = $check->(@_);
 
-    return $self->_doRequest("index.php?/api/v2/add_results/$run_id", 'POST', { 'results' => $results });
+    return $self->_doRequest( "index.php?/api/v2/add_results/$run_id",
+        'POST', { 'results' => $results } );
 }
 
 =head2 B<getTestResults(test_id,limit,offset)>
@@ -2371,11 +2586,12 @@ Returns ARRAYREF of result definition HASHREFs.
 =cut
 
 sub getTestResults {
-    state $check = compile(Object, Int, Optional[Maybe[Int]], Optional[Maybe[Int]]);
-    my ($self,$test_id,$limit,$offset) = $check->(@_);
+    state $check = compile( Object, Int, Optional [ Maybe [Int] ],
+        Optional [ Maybe [Int] ] );
+    my ( $self, $test_id, $limit, $offset ) = $check->(@_);
 
     my $url = "index.php?/api/v2/get_results/$test_id";
-    $url .= "&limit=$limit" if $limit;
+    $url .= "&limit=$limit"   if $limit;
     $url .= "&offset=$offset" if defined($offset);
     return $self->_doRequest($url);
 }
@@ -2397,8 +2613,8 @@ Returns ARRAYREF of configuration group definition HASHREFs.
 =cut
 
 sub getConfigurationGroups {
-    state $check = compile(Object, Int);
-    my ($self,$project_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $project_id ) = $check->(@_);
 
     my $url = "index.php?/api/v2/get_configs/$project_id";
     return $self->_doRequest($url);
@@ -2413,12 +2629,12 @@ Returns false if the configuration group could not be found.
 =cut
 
 sub getConfigurationGroupByName {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $name ) = $check->(@_);
 
     my $cgroups = $self->getConfigurationGroups($project_id);
     return 0 if ref($cgroups) ne 'ARRAY';
-    @$cgroups = grep {$_->{'name'} eq $name} @$cgroups;
+    @$cgroups = grep { $_->{'name'} eq $name } @$cgroups;
     return 0 unless scalar(@$cgroups);
     return $cgroups->[0];
 }
@@ -2442,11 +2658,11 @@ Returns HASHREF with new configuration group.
 =cut
 
 sub addConfigurationGroup {
-    state $check = compile(Object, Int, Str);
-    my ($self,$project_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $project_id, $name ) = $check->(@_);
 
     my $url = "index.php?/api/v2/add_config_group/$project_id";
-    return $self->_doRequest($url,'POST',{'name' => $name});
+    return $self->_doRequest( $url, 'POST', { 'name' => $name } );
 }
 
 =head2 B<editConfigurationGroup(config_group_id,name)>
@@ -2468,11 +2684,11 @@ Returns HASHREF with new configuration group.
 =cut
 
 sub editConfigurationGroup {
-    state $check = compile(Object, Int, Str);
-    my ($self,$config_group_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $config_group_id, $name ) = $check->(@_);
 
     my $url = "index.php?/api/v2/update_config_group/$config_group_id";
-    return $self->_doRequest($url,'POST',{'name' => $name});
+    return $self->_doRequest( $url, 'POST', { 'name' => $name } );
 }
 
 =head2 B<deleteConfigurationGroup(config_group_id)>
@@ -2493,11 +2709,11 @@ Returns BOOL.
 =cut
 
 sub deleteConfigurationGroup {
-    state $check = compile(Object, Int);
-    my ($self,$config_group_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $config_group_id ) = $check->(@_);
 
     my $url = "index.php?/api/v2/delete_config_group/$config_group_id";
-    return $self->_doRequest($url,'POST');
+    return $self->_doRequest( $url, 'POST' );
 }
 
 =head2 B<getConfigurations(project_id)>
@@ -2517,14 +2733,14 @@ Returns result of getConfigurationGroups (likely -500) in the event that call fa
 =cut
 
 sub getConfigurations {
-    state $check = compile(Object, Int);
-    my ($self,$project_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $project_id ) = $check->(@_);
 
     my $cgroups = $self->getConfigurationGroups($project_id);
     my $configs = [];
-    return $cgroups unless (reftype($cgroups) || 'undef') eq 'ARRAY';
+    return $cgroups unless ( reftype($cgroups) || 'undef' ) eq 'ARRAY';
     foreach my $cfg (@$cgroups) {
-        push(@$configs, @{$cfg->{'configs'}});
+        push( @$configs, @{ $cfg->{'configs'} } );
     }
     return $configs;
 }
@@ -2548,11 +2764,11 @@ Returns HASHREF with new configuration.
 =cut
 
 sub addConfiguration {
-    state $check = compile(Object, Int, Str);
-    my ($self,$configuration_group_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $configuration_group_id, $name ) = $check->(@_);
 
     my $url = "index.php?/api/v2/add_config/$configuration_group_id";
-    return $self->_doRequest($url,'POST',{'name' => $name});
+    return $self->_doRequest( $url, 'POST', { 'name' => $name } );
 }
 
 =head2 B<editConfiguration(config_id,name)>
@@ -2574,11 +2790,11 @@ Returns HASHREF with new configuration group.
 =cut
 
 sub editConfiguration {
-    state $check = compile(Object, Int, Str);
-    my ($self,$config_id,$name) = $check->(@_);
+    state $check = compile( Object, Int, Str );
+    my ( $self, $config_id, $name ) = $check->(@_);
 
     my $url = "index.php?/api/v2/update_config/$config_id";
-    return $self->_doRequest($url,'POST',{'name' => $name});
+    return $self->_doRequest( $url, 'POST', { 'name' => $name } );
 }
 
 =head2 B<deleteConfiguration(config_id)>
@@ -2598,11 +2814,11 @@ Returns BOOL.
 =cut
 
 sub deleteConfiguration {
-    state $check = compile(Object, Int);
-    my ($self,$config_id) = $check->(@_);
+    state $check = compile( Object, Int );
+    my ( $self, $config_id ) = $check->(@_);
 
     my $url = "index.php?/api/v2/delete_config/$config_id";
-    return $self->_doRequest($url,'POST');
+    return $self->_doRequest( $url, 'POST' );
 }
 
 =head2 B<translateConfigNamesToIds(project_id,configs)>
@@ -2622,9 +2838,10 @@ Returns ARRAY of configuration names, with undef values for unknown configuratio
 =cut
 
 sub translateConfigNamesToIds {
-    my ($self,$project_id,@names) = @_;
-    my $configs = $self->getConfigurations($project_id) or confess("Could not determine configurations in provided project.");
-    return _X_in_my_Y($self,$configs,'id',@names);
+    my ( $self, $project_id, @names ) = @_;
+    my $configs = $self->getConfigurations($project_id)
+      or confess("Could not determine configurations in provided project.");
+    return _X_in_my_Y( $self, $configs, 'id', @names );
 }
 
 =head1 STATIC METHODS
@@ -2649,8 +2866,8 @@ Convenience method to build the stepResult hashes seen in the custom options for
 
 #Convenience method for building stepResults
 sub buildStepResults {
-    state $check = compile(Str, Str, Str, Int);
-    my ($content,$expected,$actual,$status_id) = $check->(@_);
+    state $check = compile( Str, Str, Str, Int );
+    my ( $content, $expected, $actual, $status_id ) = $check->(@_);
 
     return {
         content   => $content,
@@ -2659,7 +2876,6 @@ sub buildStepResults {
         status_id => $status_id
     };
 }
-
 
 1;
 
