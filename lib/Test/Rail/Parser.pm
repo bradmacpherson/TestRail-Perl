@@ -78,6 +78,16 @@ Get the TAP Parser ready to talk to TestRail, and register a bunch of callbacks 
 
 =item B<encoding> - STRING (optional): Character encoding of TAP to be parsed and the various inputs parameters for the parser.  Defaults to UTF-8, see L<Encode::Supported> for a list of supported encodings.
 
+=item B<test_pass_status> - STRING (optional): TestRail 'internal' name of status to mark OK tests. Defaults to 'passed'.
+
+=item B<test_fail_status> - STRING (optional): TestRail 'internal' name of status to mark NOT OK tests. Defaults to 'failed'.
+
+=item B<test_skip_status> - STRING (optional): TestRail 'internal' name of status to mark skipped tests. Defaults to 'untested'.
+
+=item B<test_todo_pass_status> - STRING (optional): TestRail 'internal' name of status to mark TODO OK tests. Defaults to 'untested'.
+
+=item B<test_todo_fail_status> - STRING (optional): TestRail 'internal' name of status to mark TODO NOT OK tests. Defaults to 'untested'.
+
 =item B<test_bad_status> - STRING (optional): 'internal' name of whatever status you want to mark compile failures & no plan + no assertion tests.
 
 =item B<max_tries> - INTEGER (optional): number of times to try failing requests.  Defaults to 1 (don't re-try).
@@ -127,8 +137,8 @@ Multiple instances of this will ignore all but the latest valid status.
 =cut
 
 sub new {
-    my ($class,$opts) = @_;
-    $opts = clone $opts; #Convenience, if we are passing over and over again...
+    my ( $class, $opts ) = @_;
+    $opts = clone $opts;  #Convenience, if we are passing over and over again...
 
     #Load our callbacks
     $opts->{'callbacks'} = {
@@ -158,189 +168,322 @@ sub new {
         'sections'     => delete $opts->{'sections'},
         'autoclose'    => delete $opts->{'autoclose'},
         'config_group' => delete $opts->{'config_group'},
+
         #Stubs for extension by subclassers
         'result_options'        => delete $opts->{'result_options'},
         'result_custom_options' => delete $opts->{'result_custom_options'},
-        'test_bad_status'       => delete $opts->{'test_bad_status'},
-        'max_tries'             => delete $opts->{'max_tries'} || 1,
+        'test_pass_status' => delete $opts->{'test_pass_status'} || 'passed',
+        'test_fail_status' => delete $opts->{'test_fail_status'} || 'failed',
+        'test_skip_status' => delete $opts->{'test_skip_status'} || 'untested',
+        'test_todo_pass_status' => delete $opts->{'test_todo_pass_status'}
+          || 'untested',
+        'test_todo_fail_status' => delete $opts->{'test_todo_fail_status'}
+          || 'untested',
+        'test_bad_status' => delete $opts->{'test_bad_status'},
+        'max_tries'       => delete $opts->{'max_tries'} || 1,
     };
 
-    confess("plan passed, but no run passed!") if !$tropts->{'run'} && $tropts->{'plan'};
+    confess("plan passed, but no run passed!")
+      if !$tropts->{'run'} && $tropts->{'plan'};
 
     #Allow natural confessing from constructor
     #Force-on POST redirects for maximum compatibility
-    my $tr = TestRail::API->new($tropts->{'apiurl'},$tropts->{'user'},$tropts->{'pass'},$tropts->{'encoding'},$tropts->{'debug'},1,$tropts->{max_tries});
+    my $tr =
+      TestRail::API->new( $tropts->{'apiurl'}, $tropts->{'user'},
+        $tropts->{'pass'}, $tropts->{'encoding'}, $tropts->{'debug'}, 1,
+        $tropts->{max_tries} );
     $tropts->{'testrail'} = $tr;
-    $tr->{'browser'} = $tropts->{'browser'} if defined($tropts->{'browser'}); #allow mocks
-    $tr->{'debug'} = 0; #Always suppress in production
+    $tr->{'browser'}      = $tropts->{'browser'}
+      if defined( $tropts->{'browser'} );    #allow mocks
+    $tr->{'debug'} = 0;                      #Always suppress in production
 
     #Get project ID from name, if not provided
-    if (!defined($tropts->{'project_id'})) {
+    if ( !defined( $tropts->{'project_id'} ) ) {
         my $pname = $tropts->{'project'};
         $tropts->{'project'} = $tr->getProjectByName($pname);
-        confess("Could not list projects! Shutting down.") if ($tropts->{'project'} == -500);
-        if (!$tropts->{'project'}) {
-            confess("No project (or project_id) provided, or that which was provided was invalid!");
+        confess("Could not list projects! Shutting down.")
+          if ( $tropts->{'project'} == -500 );
+        if ( !$tropts->{'project'} ) {
+            confess(
+                "No project (or project_id) provided, or that which was provided was invalid!"
+            );
         }
-    } else {
-        $tropts->{'project'} = $tr->getProjectByID($tropts->{'project_id'});
-        confess("No such project with ID $tropts->{project_id}!") if !$tropts->{'project'};
+    }
+    else {
+        $tropts->{'project'} = $tr->getProjectByID( $tropts->{'project_id'} );
+        confess("No such project with ID $tropts->{project_id}!")
+          if !$tropts->{'project'};
     }
     $tropts->{'project_id'} = $tropts->{'project'}->{'id'};
 
     #Discover possible test statuses
     $tropts->{'statuses'} = $tr->getPossibleTestStatuses();
-    my @ok     = grep {$_->{'name'} eq 'passed'} @{$tropts->{'statuses'}};
-    my @not_ok = grep {$_->{'name'} eq 'failed'} @{$tropts->{'statuses'}};
-    my @skip   = grep {$_->{'name'} eq 'skip'} @{$tropts->{'statuses'}};
-    my @todof  = grep {$_->{'name'} eq 'todo_fail'} @{$tropts->{'statuses'}};
-    my @todop  = grep {$_->{'name'} eq 'todo_pass'} @{$tropts->{'statuses'}};
-    my @retest = grep {$_->{'name'} eq 'retest'} @{$tropts->{'statuses'}};
+    my @ok = grep { $_->{'name'} eq $tropts->{test_pass_status} }
+      @{ $tropts->{'statuses'} };
+    my @not_ok = grep { $_->{'name'} eq $tropts->{test_fail_status} }
+      @{ $tropts->{'statuses'} };
+    my @skip = grep { $_->{'name'} eq $tropts->{test_skip_status} }
+      @{ $tropts->{'statuses'} };
+    my @todof = grep { $_->{'name'} eq $tropts->{test_todo_fail_status} }
+      @{ $tropts->{'statuses'} };
+    my @todop = grep { $_->{'name'} eq $tropts->{test_todo_pass_status} }
+      @{ $tropts->{'statuses'} };
+    my @retest = grep { $_->{'name'} eq 'retest' } @{ $tropts->{'statuses'} };
     my @tbad;
-    @tbad   = grep {$_->{'name'} eq $tropts->{test_bad_status} } @{$tropts->{'statuses'}} if $tropts->{test_bad_status};
-    confess("No status with internal name 'passed' in TestRail!") unless scalar(@ok);
-    confess("No status with internal name 'failed' in TestRail!") unless scalar(@not_ok);
-    confess("No status with internal name 'skip' in TestRail!") unless scalar(@skip);
-    confess("No status with internal name 'todo_fail' in TestRail!") unless scalar(@todof);
-    confess("No status with internal name 'todo_pass' in TestRail!") unless scalar(@todop);
-    confess("No status with internal name 'retest' in TestRail!") unless scalar(@retest);
-    confess("No status with internal name '$tropts->{test_bad_status}' in TestRail!") unless scalar(@tbad) || !$tropts->{test_bad_status};
-    #Map in all the statuses
-    foreach my $status (@{$tropts->{'statuses'}}) {
-        $tropts->{$status->{'name'}} = $status;
-    }
-    #Special aliases
-    $tropts->{'ok'}        = $ok[0];
-    $tropts->{'not_ok'}    = $not_ok[0];
+    @tbad =
+      grep { $_->{'name'} eq $tropts->{test_bad_status} }
+      @{ $tropts->{'statuses'} }
+      if $tropts->{test_bad_status};
+    confess(
+        "No status with internal name '$tropts->{test_pass_status}' in TestRail!"
+    ) unless scalar(@ok);
+    confess(
+        "No status with internal name '$tropts->{test_fail_status}' in TestRail!"
+    ) unless scalar(@not_ok);
+    confess(
+        "No status with internal name '$tropts->{test_skipped_status}' in TestRail!"
+    ) unless scalar(@skip);
+    confess(
+        "No status with internal name '$tropts->{test_todo_fail_status}' in TestRail!"
+    ) unless scalar(@todof);
+    confess(
+        "No status with internal name '$tropts->{test_todo_pass_status}' in TestRail!"
+    ) unless scalar(@todop);
+    confess("No status with internal name 'retest' in TestRail!")
+      unless scalar(@retest);
+    confess(
+        "No status with internal name '$tropts->{test_bad_status}' in TestRail!"
+    ) unless scalar(@tbad) || !$tropts->{test_bad_status};
 
-    confess "testsuite and testsuite_id are mutually exclusive" if ( $tropts->{'testsuite_id'} && $tropts->{'testsuite'});
+    #Map in all the statuses
+    foreach my $status ( @{ $tropts->{'statuses'} } ) {
+        $tropts->{ $status->{'name'} } = $status;
+    }
+
+    #Special aliases
+    $tropts->{'ok'}     = $ok[0];
+    $tropts->{'not_ok'} = $not_ok[0];
+
+    confess "testsuite and testsuite_id are mutually exclusive"
+      if ( $tropts->{'testsuite_id'} && $tropts->{'testsuite'} );
+
     #Grab testsuite by name if needed
-    if ($tropts->{'testsuite'}) {
-        my $ts = $tr->getTestSuiteByName($tropts->{'project_id'},$tropts->{'testsuite'});
-        confess("No such testsuite '".$tropts->{'testsuite'}."' found!") unless $ts;
+    if ( $tropts->{'testsuite'} ) {
+        my $ts = $tr->getTestSuiteByName( $tropts->{'project_id'},
+            $tropts->{'testsuite'} );
+        confess( "No such testsuite '" . $tropts->{'testsuite'} . "' found!" )
+          unless $ts;
         $tropts->{'testsuite_id'} = $ts->{'id'};
     }
 
     #Grab run
-    my ($run,$plan,$config_ids);
+    my ( $run, $plan, $config_ids );
 
     # See if we have to create a configuration
-    my $configz2create = $tr->getConfigurations($tropts->{'project_id'});
-    @$configz2create = grep { my $c = $_; (grep { $_ eq $c->{'name'} } @{$tropts->{'configs'}}) } @$configz2create;
-    if (scalar(@$configz2create) && $tropts->{'config_group'}) {
-        my $cgroup = $tr->getConfigurationGroupByName($tropts->{project_id},$tropts->{'config_group'});
-        unless (ref($cgroup) eq 'HASH') {
+    my $configz2create = $tr->getConfigurations( $tropts->{'project_id'} );
+    @$configz2create = grep {
+        my $c = $_;
+        ( grep { $_ eq $c->{'name'} } @{ $tropts->{'configs'} } )
+    } @$configz2create;
+    if ( scalar(@$configz2create) && $tropts->{'config_group'} ) {
+        my $cgroup =
+          $tr->getConfigurationGroupByName( $tropts->{project_id},
+            $tropts->{'config_group'} );
+        unless ( ref($cgroup) eq 'HASH' ) {
             print "# Adding Configuration Group $tropts->{config_group}...\n";
-            $cgroup = $tr->addConfigurationGroup($tropts->{project_id},$tropts->{'config_group'});
+            $cgroup =
+              $tr->addConfigurationGroup( $tropts->{project_id},
+                $tropts->{'config_group'} );
         }
-        confess("Could neither find nor create the provided configuration group '$tropts->{config_group}'") unless ref($cgroup) eq 'HASH';
+        confess(
+            "Could neither find nor create the provided configuration group '$tropts->{config_group}'"
+        ) unless ref($cgroup) eq 'HASH';
         foreach my $cc (@$configz2create) {
             print "# Adding Configuration $cc->{name}...\n";
-            $tr->addConfiguration($cgroup->{'id'}, $cc->{'name'});
+            $tr->addConfiguration( $cgroup->{'id'}, $cc->{'name'} );
         }
     }
 
     #check if configs passed are defined for project.  If we can't get all the IDs, something's hinky
-    @$config_ids = $tr->translateConfigNamesToIds($tropts->{'project_id'},@{$tropts->{'configs'}});
-    confess("Could not retrieve list of valid configurations for your project.") unless (reftype($config_ids) || 'undef') eq 'ARRAY';
-    my @bogus_configs = grep {!defined($_)} @$config_ids;
+    @$config_ids = $tr->translateConfigNamesToIds( $tropts->{'project_id'},
+        @{ $tropts->{'configs'} } );
+    confess("Could not retrieve list of valid configurations for your project.")
+      unless ( reftype($config_ids) || 'undef' ) eq 'ARRAY';
+    my @bogus_configs = grep { !defined($_) } @$config_ids;
     my $num_bogus = scalar(@bogus_configs);
-    confess("Detected $num_bogus bad config names passed.  Check available configurations for your project.") if $num_bogus;
+    confess(
+        "Detected $num_bogus bad config names passed.  Check available configurations for your project."
+    ) if $num_bogus;
 
-    if ($tropts->{'plan'}) {
+    if ( $tropts->{'plan'} ) {
+
         #Attempt to find run, filtered by configurations
-        $plan = $tr->getPlanByName($tropts->{'project_id'},$tropts->{'plan'});
-        confess("Test plan provided is completed, and spawning was not indicated") if (ref $plan eq 'HASH') && $plan->{'is_completed'} && (!$tropts->{'testsuite_id'});
-        if ($plan && !$plan->{'is_completed'}) {
+        $plan =
+          $tr->getPlanByName( $tropts->{'project_id'}, $tropts->{'plan'} );
+        confess(
+            "Test plan provided is completed, and spawning was not indicated")
+          if ( ref $plan eq 'HASH' )
+          && $plan->{'is_completed'}
+          && ( !$tropts->{'testsuite_id'} );
+        if ( $plan && !$plan->{'is_completed'} ) {
             $tropts->{'plan'} = $plan;
-            $run = $tr->getChildRunByName($plan,$tropts->{'run'},$tropts->{'configs'}); #Find plan filtered by configs
+            $run =
+              $tr->getChildRunByName( $plan, $tropts->{'run'},
+                $tropts->{'configs'} );    #Find plan filtered by configs
 
-            if (defined($run) && (reftype($run) || 'undef') eq 'HASH') {
-                $tropts->{'run'} = $run;
+            if ( defined($run) && ( reftype($run) || 'undef' ) eq 'HASH' ) {
+                $tropts->{'run'}    = $run;
                 $tropts->{'run_id'} = $run->{'id'};
             }
-        } else {
-            #Try to make it if spawn is passed
-            $tropts->{'plan'} = $tr->createPlan($tropts->{'project_id'},$tropts->{'plan'},"Test plan created by TestRail::API") if $tropts->{'testsuite_id'};
-            confess("Could not find plan ".$tropts->{'plan'}." in provided project, and spawning failed (or was not indicated)!") if !$tropts->{'plan'};
         }
-    } else {
-        $run = $tr->getRunByName($tropts->{'project_id'},$tropts->{'run'});
-        confess("Test run provided is completed, and spawning was not indicated") if (ref $run eq 'HASH') && $run->{'is_completed'} && (!$tropts->{'testsuite_id'});
-        if (defined($run) && (reftype($run) || 'undef') eq 'HASH' && !$run->{'is_completed'}) {
-            $tropts->{'run'} = $run;
+        else {
+            #Try to make it if spawn is passed
+            $tropts->{'plan'} = $tr->createPlan( $tropts->{'project_id'},
+                $tropts->{'plan'}, "Test plan created by TestRail::API" )
+              if $tropts->{'testsuite_id'};
+            confess("Could not find plan "
+                  . $tropts->{'plan'}
+                  . " in provided project, and spawning failed (or was not indicated)!"
+            ) if !$tropts->{'plan'};
+        }
+    }
+    else {
+        $run = $tr->getRunByName( $tropts->{'project_id'}, $tropts->{'run'} );
+        confess(
+            "Test run provided is completed, and spawning was not indicated")
+          if ( ref $run eq 'HASH' )
+          && $run->{'is_completed'}
+          && ( !$tropts->{'testsuite_id'} );
+        if (   defined($run)
+            && ( reftype($run) || 'undef' ) eq 'HASH'
+            && !$run->{'is_completed'} )
+        {
+            $tropts->{'run'}    = $run;
             $tropts->{'run_id'} = $run->{'id'};
         }
     }
 
     #If spawn was passed and we don't have a Run ID yet, go ahead and make it
-    if ($tropts->{'testsuite_id'} && !$tropts->{'run_id'}) {
+    if ( $tropts->{'testsuite_id'} && !$tropts->{'run_id'} ) {
         print "# Spawning run\n";
         my $cases = [];
-        if ($tropts->{'sections'}) {
+        if ( $tropts->{'sections'} ) {
             print "# with specified sections\n";
-            #Then translate the sections into an array of case IDs.
-            confess("Sections passed to spawn must be ARRAYREF") unless (reftype($tropts->{'sections'}) || 'undef') eq 'ARRAY';
-            @{$tropts->{'sections'}} = $tr->sectionNamesToIds($tropts->{'project_id'},$tropts->{'testsuite_id'},@{$tropts->{'sections'}});
-            foreach my $section (@{$tropts->{'sections'}}) {
-                #Get the child sections, and append them to our section list so we get their cases too.
-                my $append_sections = $tr->getChildSections($tropts->{'project_id'}, { 'id' => $section, 'suite_id' => $tropts->{'testsuite_id'} } );
-                @$append_sections = grep {my $sc = $_; !scalar(grep {$_ == $sc->{'id'}} @{$tropts->{'sections'}}) } @$append_sections; #de-dup in case the user added children to the list
-                @$append_sections = map { $_->{'id'} } @$append_sections;
-                push(@{$tropts->{'sections'}},@$append_sections);
 
-                my $section_cases = $tr->getCases($tropts->{'project_id'},$tropts->{'testsuite_id'},{ 'section_id' => $section });
-                push(@$cases,@$section_cases) if (reftype($section_cases) || 'undef') eq 'ARRAY';
+            #Then translate the sections into an array of case IDs.
+            confess("Sections passed to spawn must be ARRAYREF")
+              unless ( reftype( $tropts->{'sections'} ) || 'undef' ) eq 'ARRAY';
+            @{ $tropts->{'sections'} } = $tr->sectionNamesToIds(
+                $tropts->{'project_id'},
+                $tropts->{'testsuite_id'},
+                @{ $tropts->{'sections'} }
+            );
+            foreach my $section ( @{ $tropts->{'sections'} } ) {
+
+                #Get the child sections, and append them to our section list so we get their cases too.
+                my $append_sections = $tr->getChildSections(
+                    $tropts->{'project_id'},
+                    {
+                        'id'       => $section,
+                        'suite_id' => $tropts->{'testsuite_id'}
+                    }
+                );
+                @$append_sections = grep {
+                    my $sc = $_;
+                    !scalar( grep { $_ == $sc->{'id'} }
+                          @{ $tropts->{'sections'} } )
+                  } @$append_sections
+                  ;    #de-dup in case the user added children to the list
+                @$append_sections = map { $_->{'id'} } @$append_sections;
+                push( @{ $tropts->{'sections'} }, @$append_sections );
+
+                my $section_cases = $tr->getCases(
+                    $tropts->{'project_id'},
+                    $tropts->{'testsuite_id'},
+                    { 'section_id' => $section }
+                );
+                push( @$cases, @$section_cases )
+                  if ( reftype($section_cases) || 'undef' ) eq 'ARRAY';
             }
         }
 
-        if (scalar(@$cases)) {
-            @$cases = map {$_->{'id'}} @$cases;
-        } else {
+        if ( scalar(@$cases) ) {
+            @$cases = map { $_->{'id'} } @$cases;
+        }
+        else {
             $cases = undef;
         }
 
-        if ($tropts->{'plan'}) {
+        if ( $tropts->{'plan'} ) {
             print "# inside of plan\n";
-            $plan = $tr->createRunInPlan( $tropts->{'plan'}->{'id'}, $tropts->{'testsuite_id'}, $tropts->{'run'}, undef, $config_ids, $cases );
-            $run = $plan->{'runs'}->[0] if exists($plan->{'runs'}) && (reftype($plan->{'runs'}) || 'undef') eq 'ARRAY' && scalar(@{$plan->{'runs'}});
-            if (defined($run) && (reftype($run) || 'undef') eq 'HASH') {
-                $tropts->{'run'} = $run;
-                $tropts->{'run_id'} = $run->{'id'};
-            }
-        } else {
-            $run = $tr->createRun( $tropts->{'project_id'}, $tropts->{'testsuite_id'}, $tropts->{'run'}, "Automatically created Run from TestRail::API", undef, undef, $cases );
-            if (defined($run) && (reftype($run) || 'undef') eq 'HASH') {
-                $tropts->{'run'} = $run;
+            $plan = $tr->createRunInPlan(
+                $tropts->{'plan'}->{'id'},
+                $tropts->{'testsuite_id'},
+                $tropts->{'run'}, undef, $config_ids, $cases
+            );
+            $run = $plan->{'runs'}->[0]
+              if exists( $plan->{'runs'} )
+              && ( reftype( $plan->{'runs'} ) || 'undef' ) eq 'ARRAY'
+              && scalar( @{ $plan->{'runs'} } );
+            if ( defined($run) && ( reftype($run) || 'undef' ) eq 'HASH' ) {
+                $tropts->{'run'}    = $run;
                 $tropts->{'run_id'} = $run->{'id'};
             }
         }
-        confess("Could not spawn run with requested parameters!") if !$tropts->{'run_id'};
-        print "# Success!\n"
+        else {
+            $run = $tr->createRun(
+                $tropts->{'project_id'},
+                $tropts->{'testsuite_id'},
+                $tropts->{'run'},
+                "Automatically created Run from TestRail::API",
+                undef,
+                undef,
+                $cases
+            );
+            if ( defined($run) && ( reftype($run) || 'undef' ) eq 'HASH' ) {
+                $tropts->{'run'}    = $run;
+                $tropts->{'run_id'} = $run->{'id'};
+            }
+        }
+        confess("Could not spawn run with requested parameters!")
+          if !$tropts->{'run_id'};
+        print "# Success!\n";
     }
-    confess("No run ID provided, and no run with specified name exists in provided project/plan!") if !$tropts->{'run_id'};
+    confess(
+        "No run ID provided, and no run with specified name exists in provided project/plan!"
+    ) if !$tropts->{'run_id'};
 
     my $self = $class->SUPER::new($opts);
-    if (defined($self->{'_iterator'}->{'command'}) && reftype($self->{'_iterator'}->{'command'}) eq 'ARRAY' ) {
+    if ( defined( $self->{'_iterator'}->{'command'} )
+        && reftype( $self->{'_iterator'}->{'command'} ) eq 'ARRAY' )
+    {
         $self->{'file'} = $self->{'_iterator'}->{'command'}->[-1];
         print "# PROCESSING RESULTS FROM TEST FILE: $self->{'file'}\n";
         $self->{'track_time'} = 1;
-    } else {
+    }
+    else {
         #Not running inside of prove in real-time, don't bother with tracking elapsed times.
         $self->{'track_time'} = 0;
     }
 
     #Make sure the step results field passed exists on the system
     my $sr_name = $tropts->{'step_results'};
-    $tropts->{'step_results'} = $tr->getTestResultFieldByName($tropts->{'step_results'},$tropts->{'project_id'}) if defined $tropts->{'step_results'};
-    confess("Invalid step results value '$sr_name' passed. Check the spelling and confirm that your project can use the '$sr_name' custom result field.") if ref $tropts->{'step_results'} ne 'HASH' && $sr_name;
+    $tropts->{'step_results'} =
+      $tr->getTestResultFieldByName( $tropts->{'step_results'},
+        $tropts->{'project_id'} )
+      if defined $tropts->{'step_results'};
+    confess(
+        "Invalid step results value '$sr_name' passed. Check the spelling and confirm that your project can use the '$sr_name' custom result field."
+    ) if ref $tropts->{'step_results'} ne 'HASH' && $sr_name;
 
     $self->{'tr_opts'} = $tropts;
     $self->{'errors'}  = 0;
+
     #Start the shot clock
     $self->{'starttime'} = time();
+
     #Make sure we get the time it took to get to each step from the last correctly
-    $self->{'lasttime'} = $self->{'starttime'};
+    $self->{'lasttime'}   = $self->{'starttime'};
     $self->{'raw_output'} = "";
 
     return $self;
@@ -358,16 +501,22 @@ Stores said filename for future use if encountered.
 # Look for file boundaries, etc.
 sub unknownCallback {
     my ($test) = @_;
-    my $self = $test->{'parser'};
-    my $line = $test->as_string;
+    my $self   = $test->{'parser'};
+    my $line   = $test->as_string;
     $self->{'raw_output'} .= "$line\n";
 
     #Unofficial "Extensions" to TAP
     my ($status_override) = $line =~ m/^% mark_status=([a-z|_]*)/;
     if ($status_override) {
-        cluck "Unknown status override" unless defined $self->{'tr_opts'}->{$status_override}->{'id'};
-        $self->{'global_status'} = $self->{'tr_opts'}->{$status_override}->{'id'} if $self->{'tr_opts'}->{$status_override};
-        print "# Overriding status to $status_override (".$self->{'global_status'}.")...\n" if $self->{'global_status'};
+        cluck "Unknown status override"
+          unless defined $self->{'tr_opts'}->{$status_override}->{'id'};
+        $self->{'global_status'} =
+          $self->{'tr_opts'}->{$status_override}->{'id'}
+          if $self->{'tr_opts'}->{$status_override};
+        print "# Overriding status to $status_override ("
+          . $self->{'global_status'}
+          . ")...\n"
+          if $self->{'global_status'};
     }
 
     #XXX I'd love to just rely on the 'name' attr in App::Prove::State::Result::Test, but...
@@ -387,11 +536,11 @@ Especially useful when merge=1 is passed to the constructor.
 # Register the current suite or test desc for use by test callback, if the line begins with the special magic words
 sub commentCallback {
     my ($test) = @_;
-    my $self = $test->{'parser'};
-    my $line = $test->as_string;
+    my $self   = $test->{'parser'};
+    my $line   = $test->as_string;
     $self->{'raw_output'} .= "$line\n";
 
-    if ($line =~ m/^#TESTDESC:\s*/) {
+    if ( $line =~ m/^#TESTDESC:\s*/ ) {
         $self->{'tr_opts'}->{'test_desc'} = $line;
         $self->{'tr_opts'}->{'test_desc'} =~ s/^#TESTDESC:\s*//g;
     }
@@ -410,77 +559,99 @@ sub testCallback {
     my $self = $test->{'parser'};
 
     if ( $self->{'track_time'} ) {
+
         #Test done.  Record elapsed time.
         my $tm = time();
-        $self->{'tr_opts'}->{'result_options'}->{'elapsed'} = _compute_elapsed($self->{'lasttime'},$tm);
-        $self->{'elapse_display'} = defined($self->{'tr_opts'}->{'result_options'}->{'elapsed'}) ? $self->{'tr_opts'}->{'result_options'}->{'elapsed'} : "0s";
+        $self->{'tr_opts'}->{'result_options'}->{'elapsed'} =
+          _compute_elapsed( $self->{'lasttime'}, $tm );
+        $self->{'elapse_display'} =
+          defined( $self->{'tr_opts'}->{'result_options'}->{'elapsed'} )
+          ? $self->{'tr_opts'}->{'result_options'}->{'elapsed'}
+          : "0s";
         $self->{'lasttime'} = $tm;
     }
 
-    my $line = $test->as_string;
+    my $line  = $test->as_string;
     my $tline = $line;
-    $tline = "[".strftime("%H:%M:%S %b %e %Y",localtime($self->{'lasttime'}))." ($self->{elapse_display})] $line" if $self->{'track_time'};
+    $tline = "["
+      . strftime( "%H:%M:%S %b %e %Y", localtime( $self->{'lasttime'} ) )
+      . " ($self->{elapse_display})] $line"
+      if $self->{'track_time'};
     $self->{'raw_output'} .= "$tline\n";
 
     #Don't do anything if we don't want to map TR case => ok or use step-by-step results
     if ( !$self->{'tr_opts'}->{'step_results'} ) {
-        print "# step_results not set.  No action to be taken, except on a whole test basis.\n" if $self->{'tr_opts'}->{'debug'};
+        print
+          "# step_results not set.  No action to be taken, except on a whole test basis.\n"
+          if $self->{'tr_opts'}->{'debug'};
         return 1;
     }
 
     $line =~ s/^(ok|not ok)\s[0-9]*\s-\s//g;
-    my $test_name  = $line;
+    my $test_name = $line;
 
-    print "# Assuming test name is '$test_name'...\n" if $self->{'tr_opts'}->{'debug'} && !$self->{'tr_opts'}->{'step_results'};
+    print "# Assuming test name is '$test_name'...\n"
+      if $self->{'tr_opts'}->{'debug'} && !$self->{'tr_opts'}->{'step_results'};
 
     my $todo_reason;
+
     #Setup args to pass to function
-    my $status = $self->{'tr_opts'}->{'not_ok'}->{'id'};
+    my $status      = $self->{'tr_opts'}->{'not_ok'}->{'id'};
     my $status_name = 'NOT OK';
-    if ($test->is_actual_ok()) {
-        $status = $self->{'tr_opts'}->{'ok'}->{'id'};
+    if ( $test->is_actual_ok() ) {
+        $status      = $self->{'tr_opts'}->{'ok'}->{'id'};
         $status_name = 'OK';
-        if ($test->has_skip()) {
-            $status = $self->{'tr_opts'}->{'skip'}->{'id'};
+        if ( $test->has_skip() ) {
+            $status      = $self->{'tr_opts'}->{'skip'}->{'id'};
             $status_name = 'SKIP';
             $test_name =~ s/^(ok|not ok)\s[0-9]*\s//g;
             $test_name =~ s/^# skip //gi;
             print "# '$test_name'\n";
         }
-        if ($test->has_todo()) {
-            $status = $self->{'tr_opts'}->{'todo_pass'}->{'id'};
+        if ( $test->has_todo() ) {
+            $status      = $self->{'tr_opts'}->{'todo_pass'}->{'id'};
             $status_name = 'TODO PASS';
-            $test_name   =~ s/^(ok|not ok)\s[0-9]*\s//g;
-            $test_name   =~ s/^# todo & skip //gi; #handle todo_skip
-            $test_name   =~ s/# todo\s(.*)$//gi;
-            $todo_reason = $test->explanation();
-        }
-    } else {
-        if ($test->has_todo()) {
-            $status = $self->{'tr_opts'}->{'todo_fail'}->{'id'};
-            $status_name = 'TODO FAIL';
-            $test_name   =~ s/^(ok|not ok)\s[0-9]*\s//g;
-            $test_name   =~ s/^# todo & skip //gi; #handle todo_skip
-            $test_name   =~ s/# todo\s(.*)$//gi;
+            $test_name =~ s/^(ok|not ok)\s[0-9]*\s//g;
+            $test_name =~ s/^# todo & skip //gi;    #handle todo_skip
+            $test_name =~ s/# todo\s(.*)$//gi;
             $todo_reason = $test->explanation();
         }
     }
+    else {
+        if ( $test->has_todo() ) {
+            $status      = $self->{'tr_opts'}->{'todo_fail'}->{'id'};
+            $status_name = 'TODO FAIL';
+            $test_name =~ s/^(ok|not ok)\s[0-9]*\s//g;
+            $test_name =~ s/^# todo & skip //gi;    #handle todo_skip
+            $test_name =~ s/# todo\s(.*)$//gi;
+            $todo_reason = $test->explanation();
+        }
+    }
+
     #XXX much of the above code would be unneeded if $test->description wasn't garbage
     $test_name =~ s/\s+$//g;
 
     #If this is a TODO, set the reason in the notes
-    $self->{'tr_opts'}->{'test_notes'} .= "\nTODO reason: $todo_reason\n" if $todo_reason;
+    $self->{'tr_opts'}->{'test_notes'} .= "\nTODO reason: $todo_reason\n"
+      if $todo_reason;
 
     my $sr_sys_name = $self->{'tr_opts'}->{'step_results'}->{'name'};
-    $self->{'tr_opts'}->{'result_custom_options'} = {} if !defined $self->{'tr_opts'}->{'result_custom_options'};
-    $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} = [] if !defined $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name};
+    $self->{'tr_opts'}->{'result_custom_options'} = {}
+      if !defined $self->{'tr_opts'}->{'result_custom_options'};
+    $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} = []
+      if !defined $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name};
+
     #TimeStamp every particular step
 
-    $line = "[".strftime("%H:%M:%S %b %e %Y",localtime($self->{'lasttime'}))." ($self->{elapse_display})] $line" if $self->{'track_time'};
+    $line = "["
+      . strftime( "%H:%M:%S %b %e %Y", localtime( $self->{'lasttime'} ) )
+      . " ($self->{elapse_display})] $line"
+      if $self->{'track_time'};
+
     #XXX Obviously getting the 'expected' and 'actual' from the tap DIAGs would be ideal
     push(
-        @{$self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name}},
-        TestRail::API::buildStepResults($line,"OK",$status_name,$status)
+        @{ $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} },
+        TestRail::API::buildStepResults( $line, "OK", $status_name, $status )
     );
     print "# Appended step results.\n" if $self->{'tr_opts'}->{'debug'};
     return 1;
@@ -494,17 +665,21 @@ If bail_out is called, note it and add step results.
 
 sub bailoutCallback {
     my ($test) = @_;
-    my $self = $test->{'parser'};
-    my $line = $test->as_string;
+    my $self   = $test->{'parser'};
+    my $line   = $test->as_string;
     $self->{'raw_output'} .= "$line\n";
 
-    if ($self->{'tr_opts'}->{'step_results'}) {
+    if ( $self->{'tr_opts'}->{'step_results'} ) {
         my $sr_sys_name = $self->{'tr_opts'}->{'step_results'}->{'name'};
+
         #Handle the case where we die right off
         $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} //= [];
         push(
-            @{$self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name}},
-            TestRail::API::buildStepResults("Bail Out!.","Continued testing",$test->explanation,$self->{'tr_opts'}->{'not_ok'}->{'id'})
+            @{ $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} },
+            TestRail::API::buildStepResults(
+                "Bail Out!.",       "Continued testing",
+                $test->explanation, $self->{'tr_opts'}->{'not_ok'}->{'id'}
+            )
         );
     }
     $self->{'is_bailout'} = 1;
@@ -522,43 +697,77 @@ sub EOFCallback {
     my ($self) = @_;
 
     if ( $self->{'track_time'} ) {
+
         #Test done.  Record elapsed time.
-        $self->{'tr_opts'}->{'result_options'}->{'elapsed'} = _compute_elapsed($self->{'starttime'},time());
+        $self->{'tr_opts'}->{'result_options'}->{'elapsed'} =
+          _compute_elapsed( $self->{'starttime'}, time() );
     }
 
     #Fail if the file is not set
-    if (!defined($self->{'file'})) {
-        cluck("ERROR: Cannot detect filename, will not be able to find a Test Case with that name");
+    if ( !defined( $self->{'file'} ) ) {
+        cluck(
+            "ERROR: Cannot detect filename, will not be able to find a Test Case with that name"
+        );
         $self->{'errors'}++;
         return 0;
     }
 
-    my $run_id     = $self->{'tr_opts'}->{'run_id'};
-    my $test_name  = basename($self->{'file'});
+    my $run_id    = $self->{'tr_opts'}->{'run_id'};
+    my $test_name = basename( $self->{'file'} );
 
-    my $status = $self->{'tr_opts'}->{'ok'}->{'id'};
+    my $status      = $self->{'tr_opts'}->{'ok'}->{'id'};
     my $todo_failed = $self->todo() - $self->todo_passed();
-    $status = $self->{'tr_opts'}->{'not_ok'}->{'id'}    if $self->has_problems();
-    if (!$self->tests_run() && !$self->is_good_plan() && $self->{'tr_opts'}->{test_bad_status}) { #No tests were run, no plan, code is probably bad so allow custom marking
-        $status = $self->{'tr_opts'}->{$self->{'tr_opts'}->{test_bad_status}}->{'id'};
+    $status = $self->{'tr_opts'}->{'not_ok'}->{'id'} if $self->has_problems();
+    if (   !$self->tests_run()
+        && !$self->is_good_plan()
+        && $self->{'tr_opts'}->{test_bad_status} )
+    {  #No tests were run, no plan, code is probably bad so allow custom marking
+        $status =
+          $self->{'tr_opts'}->{ $self->{'tr_opts'}->{test_bad_status} }->{'id'};
     }
-    $status = $self->{'tr_opts'}->{'todo_pass'}->{'id'} if $self->todo_passed() && !$self->failed() && $self->is_good_plan(); #If no fails, but a TODO pass, mark as TODOP
-    $status = $self->{'tr_opts'}->{'todo_fail'}->{'id'} if $todo_failed && !$self->failed() && $self->is_good_plan(); #If no fails, but a TODO fail, prefer TODOF to TODOP
-    $status = $self->{'tr_opts'}->{'skip'}->{'id'}      if $self->skip_all(); #Skip all, whee
+    $status = $self->{'tr_opts'}->{'todo_pass'}->{'id'}
+      if $self->todo_passed()
+      && !$self->failed()
+      && $self->is_good_plan();    #If no fails, but a TODO pass, mark as TODOP
+    $status = $self->{'tr_opts'}->{'todo_fail'}->{'id'}
+      if $todo_failed
+      && !$self->failed()
+      && $self->is_good_plan()
+      ;    #If no fails, but a TODO fail, prefer TODOF to TODOP
+    $status = $self->{'tr_opts'}->{'skip'}->{'id'}
+      if $self->skip_all();    #Skip all, whee
 
     #Global status override
     $status = $self->{'global_status'} if $self->{'global_status'};
 
     #Notify user about bad plan a bit better, supposing we haven't bailed
-    if (!$self->is_good_plan()  && !$self->{'is_bailout'} && defined $self->tests_run && defined $self->tests_planned ) {
-        $self->{'raw_output'} .= "\n# ERROR: Bad plan.  You ran ".$self->tests_run." tests, but planned ".$self->tests_planned.".";
-        if ($self->{'tr_opts'}->{'step_results'}) {
+    if (   !$self->is_good_plan()
+        && !$self->{'is_bailout'}
+        && defined $self->tests_run
+        && defined $self->tests_planned )
+    {
+        $self->{'raw_output'} .=
+            "\n# ERROR: Bad plan.  You ran "
+          . $self->tests_run
+          . " tests, but planned "
+          . $self->tests_planned . ".";
+        if ( $self->{'tr_opts'}->{'step_results'} ) {
             my $sr_sys_name = $self->{'tr_opts'}->{'step_results'}->{'name'};
+
             #Handle the case where we die right off
-            $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} //= [];
+            $self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name} //=
+              [];
             push(
-                @{$self->{'tr_opts'}->{'result_custom_options'}->{$sr_sys_name}},
-                TestRail::API::buildStepResults("Bad Plan.",$self->tests_planned." Tests",$self->tests_run." Tests",$status)
+                @{
+                    $self->{'tr_opts'}->{'result_custom_options'}
+                      ->{$sr_sys_name}
+                },
+                TestRail::API::buildStepResults(
+                    "Bad Plan.",
+                    $self->tests_planned . " Tests",
+                    $self->tests_run . " Tests",
+                    $status
+                )
             );
         }
     }
@@ -568,9 +777,10 @@ sub EOFCallback {
     my $options        = $self->{'tr_opts'}->{'result_options'};
     my $custom_options = $self->{'tr_opts'}->{'result_custom_options'};
 
-
     print "# Setting results...\n";
-    my $cres = $self->_set_result($run_id,$test_name,$status,$notes,$options,$custom_options);
+    my $cres =
+      $self->_set_result( $run_id, $test_name, $status, $notes, $options,
+        $custom_options );
     $self->_test_closure();
     $self->{'global_status'} = $status;
 
@@ -592,14 +802,19 @@ sub planCallback {
 }
 
 sub _set_result {
-    my ($self,$run_id,$test_name,$status,$notes,$options,$custom_options) = @_;
+    my ( $self, $run_id, $test_name, $status, $notes, $options,
+        $custom_options ) = @_;
     my $tc;
 
-    print "# Test elapsed: ".$options->{'elapsed'}."\n" if $options->{'elapsed'};
+    print "# Test elapsed: " . $options->{'elapsed'} . "\n"
+      if $options->{'elapsed'};
 
-    print "# Attempting to find case by title '".$test_name."' in run $run_id...\n";
-    $tc = $self->{'tr_opts'}->{'testrail'}->getTestByName($run_id,$test_name);
-    if (!defined($tc) || (reftype($tc) || 'undef') ne 'HASH') {
+    print "# Attempting to find case by title '"
+      . $test_name
+      . "' in run $run_id...\n";
+    $tc =
+      $self->{'tr_opts'}->{'testrail'}->getTestByName( $run_id, $test_name );
+    if ( !defined($tc) || ( reftype($tc) || 'undef' ) ne 'HASH' ) {
         cluck("ERROR: Could not find test case: $tc");
         $self->{'errors'}++;
         return 0;
@@ -611,12 +826,18 @@ sub _set_result {
 
     #Set test result
     if ($tc) {
-        print "# Reporting result of case $xid in run $self->{'tr_opts'}->{'run_id'} as status '$status'...";
+        print
+          "# Reporting result of case $xid in run $self->{'tr_opts'}->{'run_id'} as status '$status'...";
+
         # createTestResults(test_id,status_id,comment,options,custom_options)
-        $cres = $self->{'tr_opts'}->{'testrail'}->createTestResults($tc->{'id'},$status, $notes, $options, $custom_options);
-        print "# OK! (set to $status)\n" if (reftype($cres) || 'undef') eq 'HASH';
+        $cres =
+          $self->{'tr_opts'}->{'testrail'}
+          ->createTestResults( $tc->{'id'}, $status, $notes, $options,
+            $custom_options );
+        print "# OK! (set to $status)\n"
+          if ( reftype($cres) || 'undef' ) eq 'HASH';
     }
-    if (!$tc || ((reftype($cres) || 'undef') ne 'HASH') ) {
+    if ( !$tc || ( ( reftype($cres) || 'undef' ) ne 'HASH' ) ) {
         print "# Failed!\n";
         print "# No Such test case in TestRail ($xid).\n";
         $self->{'errors'}++;
@@ -626,25 +847,27 @@ sub _set_result {
 
 #Compute the expected testrail date interval from 2 unix timestamps.
 sub _compute_elapsed {
-    my ($begin,$end)  = @_;
+    my ( $begin, $end ) = @_;
     my $secs_elapsed  = $end - $begin;
-    my $mins_elapsed  = floor($secs_elapsed / 60);
+    my $mins_elapsed  = floor( $secs_elapsed / 60 );
     my $secs_remain   = $secs_elapsed % 60;
-    my $hours_elapsed = floor($mins_elapsed / 60);
+    my $hours_elapsed = floor( $mins_elapsed / 60 );
     my $mins_remain   = $mins_elapsed % 60;
 
     my $datestr = "";
 
     #You have bigger problems if your test takes days
     if ($hours_elapsed) {
-        $datestr .= "$hours_elapsed"."h $mins_remain"."m";
-    } else {
-        $datestr .= "$mins_elapsed"."m";
+        $datestr .= "$hours_elapsed" . "h $mins_remain" . "m";
+    }
+    else {
+        $datestr .= "$mins_elapsed" . "m";
     }
     if ($mins_elapsed) {
-        $datestr .= " $secs_remain"."s";
-    } else {
-        $datestr .= " $secs_elapsed"."s";
+        $datestr .= " $secs_remain" . "s";
+    }
+    else {
+        $datestr .= " $secs_elapsed" . "s";
     }
     undef $datestr if $datestr eq "0m 0s";
     return $datestr;
@@ -654,22 +877,31 @@ sub _test_closure {
     my ($self) = @_;
     return unless $self->{'tr_opts'}->{'autoclose'};
     my $is_plan = $self->{'tr_opts'}->{'plan'} ? 1 : 0;
-    my $id      = $self->{'tr_opts'}->{'plan'} ? $self->{'tr_opts'}->{'plan'}->{'id'} : $self->{'tr_opts'}->{'run'};
+    my $id =
+        $self->{'tr_opts'}->{'plan'}
+      ? $self->{'tr_opts'}->{'plan'}->{'id'}
+      : $self->{'tr_opts'}->{'run'};
 
     if ($is_plan) {
-        my $plan_summary = $self->{'tr_opts'}->{'testrail'}->getPlanSummary($id);
+        my $plan_summary =
+          $self->{'tr_opts'}->{'testrail'}->getPlanSummary($id);
 
-        return if ( $plan_summary->{'totals'}->{'Untested'} + $plan_summary->{'totals'}->{'Retest'} );
+        return
+          if ( $plan_summary->{'totals'}->{'Untested'} +
+            $plan_summary->{'totals'}->{'Retest'} );
         print "# No more outstanding cases detected.  Closing Plan.\n";
         $self->{'plan_closed'} = 1;
         return $self->{'tr_opts'}->{'testrail'}->closePlan($id);
     }
 
     my ($run_summary) = $self->{'tr_opts'}->{'testrail'}->getRunSummary($id);
-    return if ( $run_summary->{'run_status'}->{'Untested'} + $run_summary->{'run_status'}->{'Retest'} );
+    return
+      if ( $run_summary->{'run_status'}->{'Untested'} +
+        $run_summary->{'run_status'}->{'Retest'} );
     print "# No more outstanding cases detected.  Closing Run.\n";
     $self->{'run_closed'} = 1;
-    return $self->{'tr_opts'}->{'testrail'}->closeRun($self->{'tr_opts'}->{'run_id'});
+    return $self->{'tr_opts'}->{'testrail'}
+      ->closeRun( $self->{'tr_opts'}->{'run_id'} );
 }
 
 =head2 make_result
@@ -679,12 +911,11 @@ make_result has been overridden to make the parser object available to callbacks
 =cut
 
 sub make_result {
-    my ($self,@args) = @_;
+    my ( $self, @args ) = @_;
     my $res = $self->SUPER::make_result(@args);
     $res->{'parser'} = $self;
     return $res;
 }
-
 
 1;
 
