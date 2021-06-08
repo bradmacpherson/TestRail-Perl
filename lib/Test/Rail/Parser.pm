@@ -161,6 +161,7 @@ sub new {
         'project_id'   => delete $opts->{'project_id'},
         'step_results' => delete $opts->{'step_results'},
         'plan'         => delete $opts->{'plan'},
+        'plan_id'      => delete $opts->{'plan_id'},
         'configs'      => delete $opts->{'configs'} // [],
         'testsuite_id' => delete $opts->{'testsuite_id'},
         'testsuite'    => delete $opts->{'testsuite'},
@@ -188,10 +189,17 @@ sub new {
 
     #Allow natural confessing from constructor
     #Force-on POST redirects for maximum compatibility
-    my $tr =
-      TestRail::API->new( $tropts->{'apiurl'}, $tropts->{'user'},
-        $tropts->{'pass'}, $tropts->{'encoding'}, $tropts->{'debug'}, 1,
-        $tropts->{max_tries} );
+    #Also ensure all opts that need string type have it when undef
+    my $tr = TestRail::API->new(
+        $tropts->{'apiurl'} // '',
+        $tropts->{'user'} // '',
+        $tropts->{'pass'} // '',
+        $tropts->{'encoding'} // '',
+        $tropts->{'debug'},
+        1,
+        $tropts->{max_tries},
+        { 'skip_usercache' => 1 },
+    );
     $tropts->{'testrail'} = $tr;
     $tr->{'browser'}      = $tropts->{'browser'}
       if defined( $tropts->{'browser'} );    #allow mocks
@@ -215,6 +223,9 @@ sub new {
           if !$tropts->{'project'};
     }
     $tropts->{'project_id'} = $tropts->{'project'}->{'id'};
+
+    # Ok, let's cache the users since we have the project ID now
+    $tr->getUsers($tropts->{'project_id'});
 
     #Discover possible test statuses
     $tropts->{'statuses'} = $tr->getPossibleTestStatuses();
@@ -318,6 +329,7 @@ sub new {
     if ( $tropts->{'plan'} ) {
 
         #Attempt to find run, filtered by configurations
+<<<<<<< HEAD
         $plan =
           $tr->getPlanByName( $tropts->{'project_id'}, $tropts->{'plan'} );
         confess(
@@ -326,6 +338,15 @@ sub new {
           && $plan->{'is_completed'}
           && ( !$tropts->{'testsuite_id'} );
         if ( $plan && !$plan->{'is_completed'} ) {
+=======
+        if ( $tropts->{'plan_id'} ) {
+          $plan = $tr->getPlanByID( $tropts->{'plan_id'} );
+        } else {
+          $plan = $tr->getPlanByName( $tropts->{'project_id'}, $tropts->{'plan'} );
+        }
+        confess("Test plan provided is completed, and spawning was not indicated") if (ref $plan eq 'HASH') && $plan->{'is_completed'} && (!$tropts->{'testsuite_id'});
+        if ($plan && !$plan->{'is_completed'}) {
+>>>>>>> 930ba07a71c28789cc453f49131403556b8f7471
             $tropts->{'plan'} = $plan;
             $run =
               $tr->getChildRunByName( $plan, $tropts->{'run'},

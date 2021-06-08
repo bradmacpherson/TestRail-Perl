@@ -50,11 +50,10 @@ sub make_parser {
     $args->{'project'}  = $ENV{'TESTRAIL_PROJ'};
     $args->{'run'}      = $ENV{'TESTRAIL_RUN'};
     $args->{'plan'}     = $ENV{'TESTRAIL_PLAN'};
-    @configs = split( /:/, $ENV{'TESTRAIL_CONFIGS'} )
-      if $ENV{'TESTRAIL_CONFIGS'};
-    $args->{'configs'} = \@configs if scalar(@configs);
-    $args->{'result_options'} = { 'version' => $ENV{'TESTRAIL_VERSION'} }
-      if $ENV{'TESTRAIL_VERSION'};
+    $args->{'plan_id'}  = $ENV{'TESTRAIL_PLAN_ID'};
+    @configs = split(/:/,$ENV{'TESTRAIL_CONFIGS'}) if $ENV{'TESTRAIL_CONFIGS'};
+    $args->{'configs'}         = \@configs if scalar(@configs);
+    $args->{'result_options'}  = {'version' => $ENV{'TESTRAIL_VERSION'}} if $ENV{'TESTRAIL_VERSION'};
     $args->{'step_results'}    = $ENV{'TESTRAIL_STEPS'};
     $args->{'testsuite_id'}    = $ENV{'TESTRAIL_SPAWN'};
     $args->{'testsuite'}       = $ENV{'TESTRAIL_TESTSUITE'};
